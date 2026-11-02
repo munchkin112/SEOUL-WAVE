@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+*.pem
+*accessKeys.csv
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/

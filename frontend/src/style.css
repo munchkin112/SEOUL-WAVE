@@ -1,0 +1,12 @@
+:root { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #15344b; background: #edf7f8; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+main { width: min(100%, 620px); padding: clamp(32px, 8vw, 64px); border-radius: 24px; background: #fff; box-shadow: 0 16px 50px #1d536314; border-top: 8px solid #31a6ba; }
+.eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.16em; color: #15798d; }
+h1 { margin: 18px 0 12px; font-size: clamp(2rem, 7vw, 3rem); letter-spacing: -0.05em; }
+p { color: #526d79; line-height: 1.6; }
+.status { margin-top: 32px; display: inline-flex; gap: 9px; align-items: center; padding: 10px 14px; background: #f0f7f7; border-radius: 30px; font-size: 0.9rem; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #9aabb1; }
+.dot.ok { background: #1b9a69; }
+.dot.error { background: #cc6049; }
+.hint { font-size: 0.85rem; }
