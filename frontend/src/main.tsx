@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { checkHealth } from './health.js';
+import { checkHealth } from './health';
 import './style.css';
 
 function App() {
-  const [connected, setConnected] = useState(null);
+  const [connected, setConnected] = useState<boolean | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -26,4 +26,6 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+const root = document.getElementById('root');
+if (root === null) throw new Error('화면을 표시할 root 요소가 없습니다.');
+createRoot(root).render(<App />);

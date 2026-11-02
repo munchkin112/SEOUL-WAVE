@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkHealth } from './health.js';
+import { checkHealth } from './health.ts';
 
 test('서버가 정상 응답하면 연결 상태를 반환한다', async () => {
   const status = await checkHealth(async (url) => {

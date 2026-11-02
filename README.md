@@ -4,7 +4,7 @@ React 화면과 FastAPI 서버를 함께 실행하는 팀 프로젝트의 시작
 
 ## 폴더 구조
 
-- `frontend/`: React 화면 (JavaScript, Vite)
+- `frontend/`: React 화면 (TypeScript, Vite)
 - `backend/`: FastAPI 서버
 - `compose.yaml`: 두 프로그램을 함께 실행하기 위한 설정
 
