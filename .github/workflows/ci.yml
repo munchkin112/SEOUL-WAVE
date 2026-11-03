@@ -185,7 +185,15 @@ jobs:
                   status_code = response.status
           except HTTPError as error:
               status_code = error.code
+              try:
+                  error_body = json.loads(error.read().decode("utf-8"))
+                  discord_error_code = error_body.get("code")
+              except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                  discord_error_code = None
+
               print(f"Discord webhook HTTP 응답: {status_code}")
+              if isinstance(discord_error_code, (int, str)) and str(discord_error_code).isdigit():
+                  print(f"Discord 오류 코드: {discord_error_code}")
               raise SystemExit(1)
           except (URLError, TimeoutError, OSError) as error:
               print(f"Discord webhook 요청 실패: {type(error).__name__}")
