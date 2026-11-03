@@ -69,6 +69,12 @@ jobs:
           echo "FastAPI did not start within 20 seconds"
           exit 1
 
+      - name: Simulate a backend test failure for Discord alert check
+        if: ${{ github.ref == 'refs/heads/ci/discord-alert-test' && contains(github.event.head_commit.message || '', '[simulate-backend-failure]') }}
+        run: |
+          echo "Intentional failure limited to the Discord alert test branch"
+          exit 1
+
   frontend:
     name: Test React frontend
     runs-on: ubuntu-latest
