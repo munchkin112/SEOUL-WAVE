@@ -129,6 +129,20 @@ jobs:
               print("DISCORD_WEBHOOK_URL is not configured")
               raise SystemExit(1)
 
+          webhook_parts = urlsplit(webhook_url)
+          webhook_path_is_valid = re.fullmatch(
+              r"/api/(?:v[0-9]+/)?webhooks/[0-9]{17,20}/[A-Za-z0-9._-]+",
+              webhook_parts.path,
+          )
+          if (
+              webhook_parts.scheme != "https"
+              or webhook_parts.hostname not in {"discord.com", "discordapp.com"}
+              or not webhook_path_is_valid
+          ):
+              print("DISCORD_WEBHOOK_URL 형식 확인 필요")
+              raise SystemExit(1)
+          print("Discord webhook URL 형식: 유효")
+
           frontend_result = os.environ.get("FRONTEND_RESULT", "unknown")
           if frontend_result == "success":
               lines = [
@@ -177,7 +191,11 @@ jobs:
           request = Request(
               webhook_url,
               data=json.dumps(payload).encode("utf-8"),
-              headers={"Content-Type": "application/json"},
+              headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "User-Agent": "HanGangLocalPass-GitHubActions/1.0",
+              },
               method="POST",
           )
 
