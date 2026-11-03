@@ -72,6 +72,7 @@ jobs:
       install_result: ${{ steps.install.outcome }}
       test_result: ${{ steps.test.outcome }}
       build_result: ${{ steps.build.outcome }}
+      simulation_result: ${{ steps.simulate_alert_failure.outcome }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -95,6 +96,13 @@ jobs:
         id: build
         run: npm run build
 
+      - name: Simulate a frontend test failure for Discord alert check
+        id: simulate_alert_failure
+        if: ${{ github.ref == 'refs/heads/ci/discord-alert-test' && contains(github.event.head_commit.message, '[simulate-frontend-failure]') }}
+        run: |
+          echo "Intentional failure limited to the Discord alert test branch"
+          exit 1
+
   discord_notify:
     name: Notify Discord
     needs:
@@ -111,6 +119,7 @@ jobs:
           FRONTEND_INSTALL_RESULT: ${{ needs.frontend.outputs.install_result }}
           FRONTEND_TEST_RESULT: ${{ needs.frontend.outputs.test_result }}
           FRONTEND_BUILD_RESULT: ${{ needs.frontend.outputs.build_result }}
+          FRONTEND_SIMULATION_RESULT: ${{ needs.frontend.outputs.simulation_result }}
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -122,6 +131,7 @@ jobs:
           import sys
           from urllib.error import HTTPError, URLError
           from urllib.request import Request, urlopen
+          from urllib.parse import urlsplit
 
           webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
           if not webhook_url:
@@ -141,7 +151,10 @@ jobs:
               test_result = os.environ.get("FRONTEND_TEST_RESULT", "")
               build_result = os.environ.get("FRONTEND_BUILD_RESULT", "")
 
-              if test_result == "failure":
+              simulation_result = os.environ.get("FRONTEND_SIMULATION_RESULT", "")
+              if simulation_result == "failure":
+                  failed_stage = "Test (시뮬레이션)"
+              elif test_result == "failure":
                   failed_stage = "Test"
               elif build_result == "failure":
                   failed_stage = "Build"
@@ -185,7 +198,21 @@ jobs:
                   status_code = response.status
           except HTTPError as error:
               status_code = error.code
+              try:
+                  error_body = json.loads(error.read().decode("utf-8"))
+                  discord_error_code = error_body.get("code")
+              except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                  discord_error_code = None
+
+              webhook_host = urlsplit(webhook_url).hostname or "unknown"
+              response_server = error.headers.get("Server", "unknown")
+              response_type = error.headers.get("Content-Type", "unknown")
               print(f"Discord webhook HTTP 응답: {status_code}")
+              print(f"Discord webhook 호스트: {webhook_host}")
+              print(f"Discord 응답 서버: {response_server}")
+              print(f"Discord 응답 형식: {response_type}")
+              if isinstance(discord_error_code, (int, str)) and str(discord_error_code).isdigit():
+                  print(f"Discord 오류 코드: {discord_error_code}")
               raise SystemExit(1)
           except (URLError, TimeoutError, OSError) as error:
               print(f"Discord webhook 요청 실패: {type(error).__name__}")
