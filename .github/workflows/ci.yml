@@ -122,6 +122,7 @@ jobs:
           import sys
           from urllib.error import HTTPError, URLError
           from urllib.request import Request, urlopen
+          from urllib.parse import urlsplit
 
           webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
           if not webhook_url:
@@ -191,7 +192,13 @@ jobs:
               except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
                   discord_error_code = None
 
+              webhook_host = urlsplit(webhook_url).hostname or "unknown"
+              response_server = error.headers.get("Server", "unknown")
+              response_type = error.headers.get("Content-Type", "unknown")
               print(f"Discord webhook HTTP 응답: {status_code}")
+              print(f"Discord webhook 호스트: {webhook_host}")
+              print(f"Discord 응답 서버: {response_server}")
+              print(f"Discord 응답 형식: {response_type}")
               if isinstance(discord_error_code, (int, str)) and str(discord_error_code).isdigit():
                   print(f"Discord 오류 코드: {discord_error_code}")
               raise SystemExit(1)
