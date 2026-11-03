@@ -119,7 +119,6 @@ jobs:
           BACKEND_INSTALL_RESULT: ${{ needs.backend.outputs.install_result }}
           BACKEND_TEST_RESULT: ${{ needs.backend.outputs.test_result }}
           BACKEND_HEALTH_RESULT: ${{ needs.backend.outputs.health_result }}
-          BACKEND_FAILURE_SIMULATION: ${{ github.ref == 'refs/heads/ci/discord-alert-test' && contains(github.event.head_commit.message || '', '[simulate-backend-failure]') }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           FRONTEND_INSTALL_RESULT: ${{ needs.frontend.outputs.install_result }}
           FRONTEND_TEST_RESULT: ${{ needs.frontend.outputs.test_result }}
@@ -165,12 +164,7 @@ jobs:
               install_result = os.environ.get("BACKEND_INSTALL_RESULT", "")
               test_result = os.environ.get("BACKEND_TEST_RESULT", "")
               health_result = os.environ.get("BACKEND_HEALTH_RESULT", "")
-              simulated_failure = os.environ.get("BACKEND_FAILURE_SIMULATION") == "true"
-
-              if simulated_failure:
-                  failed_stage = "Test (시뮬레이션)"
-              elif test_result == "failure":
-                  failed_stage = "pytest"
+              if test_result == "failure":                  failed_stage = "pytest"
               elif health_result == "failure":
                   failed_stage = "FastAPI 실행 / Health Check"
               elif install_result == "failure":
