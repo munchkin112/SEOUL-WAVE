@@ -187,14 +187,19 @@ jobs:
               ]
 
           frontend_id = os.environ.get("DISCORD_FRONTEND_ID", "").strip()
-          if re.fullmatch(r"[0-9]{17,20}", frontend_id):
+          frontend_id_is_valid = bool(re.fullmatch(r"[0-9]{17,20}", frontend_id))
+
+          if frontend_result == "success":
+              allowed_mentions = {"parse": []}
+              print("Frontend 성공 알림: 담당자 멘션 생략")
+          elif frontend_id_is_valid:
               lines.append(f"담당자 — <@{frontend_id}>")
               allowed_mentions = {"parse": [], "users": [frontend_id]}
-              print("Frontend 담당자 멘션 설정: 사용")
+              print("Frontend 실패 알림: 담당자 멘션 사용")
           else:
               lines.append("담당자 멘션 — 미설정 또는 ID 형식 확인 필요")
               allowed_mentions = {"parse": []}
-              print("Frontend 담당자 멘션 설정: 미사용")
+              print("Frontend 실패 알림: 담당자 멘션 미사용")
 
           payload = {
               "content": "\n".join(lines),
