@@ -61,11 +61,27 @@ function demoEvents(sailing: Sailing): Exhibition[] {
       collectedAt: stamp,
       reviewedAt: stamp,
     },
+    {
+      id: "garden",
+      title: "도시 정원의 하루",
+      category: "공공 전시 · 가상",
+      place: "시연 문화공간 C",
+      reason:
+        "도시와 정원을 주제로 한 가상의 문화행사입니다. 화면 구성을 확인하기 위한 예시입니다.",
+      travelMinutes: 22,
+      visitMinutes: 50,
+      totalMinutes: 100,
+      admission: "운영·입장 조건 미검수",
+      fee: "요금 미확인",
+      collectedAt: stamp,
+      reviewedAt: stamp,
+    },
   ];
 }
 
 export function createMockClient(
   scenario: PreviewScenario,
+  rotation = 0,
 ): RecommendationClient {
   return {
     async recommend(request, signal) {
@@ -91,12 +107,13 @@ export function createMockClient(
       if (scenario === "expired")
         return { status: "unavailable", reason: "expired" };
       if (scenario === "empty") return { status: "empty" };
-      const events = demoEvents(request.sailing).filter(
-        (event) =>
-          request.budgetMinutes === undefined ||
-          event.totalMinutes <= request.budgetMinutes,
-      );
+      const events = demoEvents(request.sailing);
       if (events.length === 0) return { status: "empty" };
+      const rotationIndex = rotation % events.length;
+      const rotatedEvents = [
+        ...events.slice(rotationIndex),
+        ...events.slice(0, rotationIndex),
+      ];
       if (scenario === "alternative") {
         const departure = new Date(
           Date.parse(request.sailing.departure) - 60 * 60 * 1000,
@@ -115,10 +132,13 @@ export function createMockClient(
               departure.getTime() + 30 * 60 * 1000,
             ).toISOString(),
           },
-          events,
+          events: rotatedEvents,
         };
       }
-      return { status: scenario === "limited" ? "limited" : "success", events };
+      return {
+        status: scenario === "limited" ? "limited" : "success",
+        events: rotatedEvents,
+      };
     },
   };
 }

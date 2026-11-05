@@ -13,12 +13,13 @@ export function EventCard({
   const endsAt = new Date(
     Date.parse(sailing.departure) + event.totalMinutes * 60_000,
   ).toISOString();
+
   return (
     <article className="event-card">
       <div className={`exhibition-art ${event.id}`} aria-hidden="true">
-        <span>DEMO EXHIBITION</span>
+        <span className="art-kicker">{event.category}</span>
         <div className="art-shape" />
-        <b>{event.id === "river" ? "빛의 기록" : "도시의 조각"}</b>
+        <span className="art-skyline" />
       </div>
       <div className="event-body">
         <p className="eyebrow">{event.category}</p>
@@ -33,18 +34,9 @@ export function EventCard({
         </p>
         <dl className="event-details">
           <div>
-            <dt>일정 예시</dt>
-            <dd>
-              {formatTime(sailing.departure)} 출발 →{" "}
-              {formatTime(sailing.arrival)} 하선 → {formatTime(endsAt)} 관람
-              종료
-            </dd>
-          </div>
-          <div>
             <dt>이동·관람</dt>
             <dd>
-              도보 {event.travelMinutes}분 · 관람 {event.visitMinutes}분 · 전체{" "}
-              {event.totalMinutes}분
+              이동 {event.travelMinutes}분 · 관람 {event.visitMinutes}분
             </dd>
           </div>
           <div>
@@ -53,11 +45,19 @@ export function EventCard({
               {event.admission} · {event.fee}
             </dd>
           </div>
+          <div>
+            <dt>일정 예시</dt>
+            <dd>
+              {formatTime(sailing.departure)} 출발 · 전체 약 {event.totalMinutes}분
+              <span className="screen-reader-only">
+                {" "}
+                종료 예상 {formatTime(endsAt)}
+              </span>
+            </dd>
+          </div>
         </dl>
         <footer className="event-source">
-          가상 자료 · 공식 출처 미연결
-          <br />
-          수집·검수 시각 예시: {formatTime(event.collectedAt)} /{" "}
+          수집 {formatTime(event.collectedAt)} · 검수{" "}
           {formatTime(event.reviewedAt)} KST
         </footer>
       </div>
