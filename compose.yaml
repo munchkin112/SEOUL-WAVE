@@ -21,6 +21,10 @@ services:
       - "8000:8000"
     environment:
       SEOUL_CULTURE_API_KEY: ${SEOUL_CULTURE_API_KEY:-}
+      APP_ENV: ${APP_ENV:-development}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      SITE_ACCESS_PASSWORDS: ${SITE_ACCESS_PASSWORDS:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
     depends_on:
       db:
         condition: service_healthy

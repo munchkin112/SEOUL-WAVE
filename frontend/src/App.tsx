@@ -27,7 +27,16 @@ type ViewState =
   | { phase: "loading" }
   | { phase: "done"; result: RecommendationResult; sailing: Sailing };
 
-export default function App() {
+export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
+  const [logoutError, setLogoutError] = useState('');
+  async function handleLogout() {
+    setLogoutError('');
+    try {
+      await onLogout();
+    } catch {
+      setLogoutError('로그아웃하지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.');
+    }
+  }
   const [now, setNow] = useState(() => new Date());
   const [demoSailings] = useState(() => createDemoSailings(new Date()));
   const [routeSelected, setRouteSelected] = useState(false);
@@ -112,8 +121,14 @@ export default function App() {
           </span>{" "}
           SEOUL WAVE<span className="brand-sub">한강버스 문화행사 추천</span>
         </a>
-        <span className="header-note">한강에서 만나는 서울의 문화행사</span>
+        <div className="header-actions">
+          <span className="header-note">한강에서 만나는 서울의 문화행사</span>
+          <button className="logout-button" type="button" onClick={() => void handleLogout()}>
+            로그아웃
+          </button>
+        </div>
       </header>
+      {logoutError && <p className="logout-error" role="alert">{logoutError}</p>}
       <main id="main" className="page-shell">
         <div className="demo-banner">
           <span className="demo-tag">화면 미리보기</span>모든
