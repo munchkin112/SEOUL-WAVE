@@ -1,3 +1,5 @@
+import { CalendarIcon, ShareIcon, ShipIcon, SparkIcon } from "../components/icons";
+
 export interface HomePageProps {
   onStart: () => void;
 }
@@ -32,14 +34,46 @@ export function HomePage({ onStart }: HomePageProps) {
       </div>
 
       <section className="landing-guide" id="guide" aria-labelledby="guide-title">
-        <div>
+        <header className="landing-guide-heading">
           <p className="eyebrow">YOUR DAY OUT</p>
-          <h2 id="guide-title">한강의 여정에 문화행사를 더해보세요</h2>
-        </div>
-        <p>
-          서울시 공개 선착장과 시간표를 바탕으로 여정을 선택하고,
-          문화행사 추천 결과를 확인할 수 있습니다.
+          <h2 id="guide-title">배편부터 문화행사까지, 나들이를 한 번에</h2>
+        </header>
+        <p className="landing-guide-note" role="note">
+          <span className="landing-guide-note-icon" aria-hidden="true">i</span>
+          <span>
+            AI가 한강버스 운항 정보와 서울시 문화행사 정보를 바탕으로 이동·관람 동선을 고려한 나들이 코스 1개를 추천해요. 추천 결과가 마음에 들지 않으면 최대 2회까지 다시 생성할 수 있어요.
+          </span>
         </p>
+        <ul className="landing-guide-features" aria-label="서비스 주요 기능">
+          <li className="landing-guide-feature">
+            <span className="landing-guide-feature-icon"><ShipIcon /></span>
+            <div>
+              <h3>한강버스 연계</h3>
+              <p>선택한 구간의 운항 정보를 반영해요.</p>
+            </div>
+          </li>
+          <li className="landing-guide-feature">
+            <span className="landing-guide-feature-icon"><CalendarIcon /></span>
+            <div>
+              <h3>문화행사 연계</h3>
+              <p>서울시 문화행사 정보를 함께 확인해요.</p>
+            </div>
+          </li>
+          <li className="landing-guide-feature">
+            <span className="landing-guide-feature-icon"><SparkIcon /></span>
+            <div>
+              <h3>AI 맞춤 코스</h3>
+              <p>이동·관람 시간을 고려해 일정을 제안해요.</p>
+            </div>
+          </li>
+          <li className="landing-guide-feature">
+            <span className="landing-guide-feature-icon"><ShareIcon /></span>
+            <div>
+              <h3>간편한 공유</h3>
+              <p>링크로 공유하거나 PDF로 저장해요.</p>
+            </div>
+          </li>
+        </ul>
       </section>
     </section>
   );

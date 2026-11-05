@@ -46,6 +46,9 @@ services:
       - "5173:5173"
     environment:
       VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
       - backend
 
