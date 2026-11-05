@@ -38,6 +38,20 @@ docker compose up --build
 
 `/health`와 `/ready`는 상태 확인용 공개 API입니다. 선착장·시간표·장소·문화행사 API는 로그인 세션이 필요하며, 프런트엔드 로그인은 `POST /api/auth/login`을 사용합니다. 비밀번호 목록은 `.env`의 `SITE_ACCESS_PASSWORDS`에 쉼표로 구분해 설정합니다.
 
+### 운영 로그 저장
+
+사용자 백엔드는 `backend/app/services/operation_logs_service.py`와 `backend/app/repositories/operation_logs_repository.py`를 통해 LangGraph 실행 로그를 공통 PostgreSQL의 기존 운영 로그 테이블에 기록합니다. 운영자 대시보드 조회 API는 별도 프로젝트에서 실행하며 이 FastAPI 서버에는 등록하지 않습니다. 로그에는 원시 예외·요청·프롬프트·비밀값을 기록하지 않습니다.
+
+### LangGraph 흐름 로컬 데모
+
+세 역할(이동 근거 검토 → 행사 설명 → 일정 Critic)과 한 번의 수정 요청을 LangGraph로 실행하는 개발 데모가 있습니다. 현재 지원구간과 검수 전시가 준비되지 않아 데모 입력은 합성 데이터이며 실제 추천이 아닙니다. mock 모드는 외부 LLM을 호출하지 않습니다.
+
+```powershell
+docker compose run --rm --no-deps backend python scripts/run_agent_flow_demo.py --mock
+```
+
+기본 실행은 로그를 PostgreSQL 트랜잭션에서 되돌립니다. 검증 데이터와 사용자 추천 HTTP API/worker가 연결되기 전까지 이 데모는 실제 사용자 추천이 아닙니다. 실제 OpenAI 호출은 팀이 모델을 확정한 뒤 `.env`의 `OPENAI_API_KEY`, `OPENAI_MODEL`을 설정하고 `--live`를 사용해야 합니다.
+
 ## 통합 장소 데이터를 PostgreSQL에 적재하기
 
 `C:\study\han_river_pj\database\seoul_places.sqlite3`에는 장소 마스터 3,072건, 출처 레코드 3,397건, 식물원 구역 5건이 들어 있습니다. 원본 SQLite 파일은 저장소에 복사하지 않고 읽기 전용으로 마운트해 사용합니다. 아래 명령은 PowerShell 기준입니다.

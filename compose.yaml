@@ -23,6 +23,8 @@ services:
       - "8000:8000"
     environment:
       SEOUL_CULTURE_API_KEY: ${SEOUL_CULTURE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
       APP_ENV: ${APP_ENV:-development}
       SESSION_SECRET: ${SESSION_SECRET:-}
       SITE_ACCESS_PASSWORDS: ${SITE_ACCESS_PASSWORDS:-}

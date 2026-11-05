@@ -10,6 +10,16 @@ class DatabaseUnavailable(RuntimeError):
 
 
 def get_database_connection() -> Generator[Connection, None, None]:
+    connection = create_database_connection()
+    try:
+        yield connection
+    except psycopg.Error as error:
+        raise DatabaseUnavailable('PostgreSQL is unavailable.') from error
+    finally:
+        connection.close()
+
+
+def create_database_connection(autocommit: bool = True) -> Connection:
     database_password = os.environ.get('DATABASE_PASSWORD')
     if not database_password:
         raise DatabaseUnavailable('Database connection is not configured.')
@@ -22,14 +32,8 @@ def get_database_connection() -> Generator[Connection, None, None]:
             user=os.environ.get('DATABASE_USER', 'seoul_wave_app'),
             password=database_password,
             connect_timeout=3,
-            autocommit=True,
+            autocommit=autocommit,
         )
     except psycopg.Error as error:
         raise DatabaseUnavailable('PostgreSQL is unavailable.') from error
-
-    try:
-        yield connection
-    except psycopg.Error as error:
-        raise DatabaseUnavailable('PostgreSQL is unavailable.') from error
-    finally:
-        connection.close()
+    return connection
