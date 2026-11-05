@@ -10,6 +10,7 @@ import type {
 } from "./api/types";
 import { CalendarIcon, ShareIcon, ShipIcon } from "./components/icons";
 import { HomePage } from "./pages/HomePage";
+import { CatalogPage } from "./pages/CatalogPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { RecommendationPage } from "./pages/RecommendationPage";
 import type { Notice, RequestPhase, ViewState } from "./pages/types";
@@ -63,6 +64,7 @@ function timetableErrorNotice(error: unknown): Notice {
 export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [logoutError, setLogoutError] = useState("");
   const [step, setStep] = useState<PlannerStep>("home");
+  const [isCatalogPage, setIsCatalogPage] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [stops, setStops] = useState<Stop[]>([]);
   const [stopsPhase, setStopsPhase] = useState<RequestPhase>("loading");
@@ -387,7 +389,11 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
         <a
           className="brand"
           href="#top"
-          onClick={(event) => { event.preventDefault(); setStep("home"); }}
+          onClick={(event) => {
+            event.preventDefault();
+            setIsCatalogPage(false);
+            setStep("home");
+          }}
           aria-label="SEOUL WAVE 홈"
         >
           <span className="brand-mark" aria-hidden="true">
@@ -397,18 +403,31 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
         </a>
         <nav className="primary-nav" aria-label="주요 메뉴">
           <button
-            className={step === "home" ? "active" : ""}
+            className={!isCatalogPage && step === "home" ? "active" : ""}
             type="button"
-            onClick={() => setStep("home")}
+            onClick={() => {
+              setIsCatalogPage(false);
+              setStep("home");
+            }}
           >
             홈
           </button>
           <button
-            className={step !== "home" ? "active" : ""}
+            className={!isCatalogPage && step !== "home" ? "active" : ""}
             type="button"
-            onClick={() => setStep("route")}
+            onClick={() => {
+              setIsCatalogPage(false);
+              setStep("route");
+            }}
           >
             나들이 플래너
+          </button>
+          <button
+            className={isCatalogPage ? "active" : ""}
+            type="button"
+            onClick={() => setIsCatalogPage(true)}
+          >
+            문화행사·장소
           </button>
         </nav>
         <div className="header-actions">
@@ -436,7 +455,8 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
       )}
 
       <main id="main" className="page-shell">
-        {step === "home" && (
+        {isCatalogPage && <CatalogPage />}
+        {!isCatalogPage && step === "home" && (
           <HomePage
             onStart={() => {
               setFormError("");
@@ -445,7 +465,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
           />
         )}
 
-        {(step === "route" || step === "preferences") && (
+        {!isCatalogPage && (step === "route" || step === "preferences") && (
           <PlannerPage
             step={step}
             stops={stops}
@@ -480,7 +500,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
             submit={submit}
           />
         )}
-        {step === "result" && (
+        {!isCatalogPage && step === "result" && (
           <RecommendationPage
             view={view}
             selected={selected}
