@@ -50,7 +50,7 @@ def test_error_sanitizer_redacts_credentials_urls_and_personal_data():
 
 
 def test_user_service_does_not_register_operator_dashboard_routes():
-    registered_paths = {route.path for route in app.routes}
+    registered_paths = set(app.openapi()['paths'])
 
     assert not any(path.startswith('/api/v1/admin/') for path in registered_paths)
     assert not any(path.startswith('/api/admin/') for path in registered_paths)
