@@ -405,28 +405,37 @@ function Results({
       </div>
     );
   if (result.status === "unavailable") {
-    const expired = result.reason === "expired";
+    const message = {
+      expired: {
+        eyebrow: "문화행사 정보 만료",
+        title: "최신 문화행사 정보를 확인할 수 없습니다",
+        description:
+          "마지막으로 수집한 행사 정보가 24시간을 넘어 만료되었거나, 아직 수집된 정보가 없습니다. 만료된 정보로는 추천하지 않습니다.",
+      },
+      api: {
+        eyebrow: "추천 서비스 연결 오류",
+        title: "문화행사 추천 서비스에 연결할 수 없습니다",
+        description:
+          "추천 서비스와 통신하는 중 문제가 발생해 문화행사를 가져오지 못했습니다.",
+      },
+      db: {
+        eyebrow: "행사 정보 연결 오류",
+        title: "행사 정보를 확인할 수 없습니다",
+        description:
+          "행사 정보를 보관하는 저장소에 연결되지 않아 추천할 수 없습니다.",
+      },
+    }[result.reason];
     return (
       <div className="empty-state unavailable">
         <span className="state-symbol" aria-hidden="true">
           !
         </span>
-        <p className="eyebrow">
-          {expired ? "DATA UNAVAILABLE" : "SERVICE UNAVAILABLE"}
-        </p>
-        <h3>
-          {expired
-            ? "최신 행사 정보를 이용할 수 없습니다"
-            : "지금은 추천을 이용할 수 없습니다"}
-        </h3>
+        <p className="eyebrow">{message.eyebrow}</p>
+        <h3>{message.title}</h3>
         <p>
-          {expired
-            ? "유효한 수집본이 없거나 수집 후 24시간을 넘겼습니다."
-            : result.reason === "db"
-              ? "데이터 저장소에 연결하지 못했습니다."
-              : "추천 서비스에 연결하지 못했습니다."}
+          {message.description}
           <br />
-          잠시 후 다시 요청해 주세요. 행사 0건과는 다른 상태입니다.
+          잠시 후 다시 시도해 주세요.
         </p>
       </div>
     );
