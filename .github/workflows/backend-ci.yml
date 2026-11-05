@@ -1,0 +1,89 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    branches:
+      - dev
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Run backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: ${{ vars.DATABASE_NAME }}
+          POSTGRES_USER: ${{ vars.DATABASE_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U seoul_wave_test -d seoul_wave_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_HOST: ${{ vars.DATABASE_HOST }}
+      DATABASE_PORT: ${{ vars.DATABASE_PORT }}
+      DATABASE_NAME: ${{ vars.DATABASE_NAME }}
+      DATABASE_USER: ${{ vars.DATABASE_USER }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend development dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Create operational log tables
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import psycopg
+
+          connection = psycopg.connect(
+              host=os.environ["DATABASE_HOST"],
+              port=os.environ["DATABASE_PORT"],
+              dbname=os.environ["DATABASE_NAME"],
+              user=os.environ["DATABASE_USER"],
+              password=os.environ["DATABASE_PASSWORD"],
+              autocommit=True,
+          )
+          try:
+              migration_sql = Path(
+                  "migrations/003_operations_logging.sql"
+              ).read_text(encoding="utf-8")
+              connection.execute(migration_sql, prepare=False)
+          finally:
+              connection.close()
+          PY
+
+      - name: Run backend tests
+        run: python -m pytest -q
