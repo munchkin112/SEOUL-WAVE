@@ -1,16 +1,21 @@
 import os
 import secrets
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.controllers.auth_controller import router as auth_router
+from app.controllers.event_controller import router as event_router
+from app.controllers.place_controller import router as place_router
+from app.controllers.ready_controller import router as ready_router
 from app.controllers.stop_controller import router as stop_router
 from app.controllers.trip_controller import router as trip_router
+from app.core.database import DatabaseUnavailable
 from app.security import require_authenticated_session
 
-app = FastAPI(title='한강로컬패스 API')
+app = FastAPI(title='한강버스 AI 나들이 플래너 API')
 
 app_environment = os.getenv('APP_ENV', 'development').lower()
 session_secret = os.getenv('SESSION_SECRET', '')
@@ -44,14 +49,28 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(
-    stop_router,
-    dependencies=[Depends(require_authenticated_session)],
-)
-app.include_router(
-    trip_router,
-    dependencies=[Depends(require_authenticated_session)],
-)
+authenticated_dependencies = [Depends(require_authenticated_session)]
+app.include_router(stop_router, dependencies=authenticated_dependencies)
+app.include_router(trip_router, dependencies=authenticated_dependencies)
+app.include_router(event_router, dependencies=authenticated_dependencies)
+app.include_router(place_router, dependencies=authenticated_dependencies)
+app.include_router(ready_router)
+
+
+@app.exception_handler(DatabaseUnavailable)
+def handle_database_unavailable(
+    request: Request,
+    error: DatabaseUnavailable,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            'detail': {
+                'code': 'database_unavailable',
+                'message': 'Database is currently unavailable.',
+            }
+        },
+    )
 
 
 @app.get('/health')
