@@ -79,7 +79,7 @@ export function StationMap({
 
       <div className="map-selection-controls" aria-label="선택할 선착장 종류">
         <button
-          className={`map-selection-choice ${activeTarget === "origin" ? "active" : ""}`}
+          className={`map-selection-choice ${activeTarget === "origin" ? "active" : ""} ${fromStopId ? "selected-origin" : ""}`}
           type="button"
           aria-pressed={activeTarget === "origin"}
           disabled={disabled || stopsPhase !== "ready"}

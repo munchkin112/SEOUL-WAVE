@@ -470,6 +470,13 @@ p {
   box-shadow: 0 0 0 2px rgb(97 92 255 / 10%);
 }
 
+.map-selection-choice.selected-origin,
+.map-selection-choice.selected-origin.active {
+  border-color: #16814b;
+  background: #effaf3;
+  box-shadow: 0 0 0 2px rgb(22 129 75 / 11%);
+}
+
 .map-selection-choice > span:last-child {
   display: grid;
   gap: 2px;
@@ -492,6 +499,11 @@ p {
   border-radius: 50%;
   background: #4e48f5;
   box-shadow: 0 0 0 1px #4e48f5;
+}
+
+.map-selection-choice.selected-origin .selection-pin.origin-pin {
+  background: #16814b;
+  box-shadow: 0 0 0 1px #16814b;
 }
 
 .selection-pin.destination-pin {
@@ -557,8 +569,8 @@ p {
 }
 
 .station-marker.is-origin .station-marker-dot {
-  background: #5148f5;
-  box-shadow: 0 0 0 3px #5148f5, 0 1px 8px rgb(22 33 77 / 40%);
+  background: #16814b;
+  box-shadow: 0 0 0 3px #16814b, 0 1px 8px rgb(22 33 77 / 40%);
 }
 
 .station-marker.is-destination .station-marker-dot {
