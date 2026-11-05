@@ -8,10 +8,11 @@ from app.services.timetable_service import (
 )
 from app.views.timetable_view import render_trip_query_response
 
-router = APIRouter(prefix='/api', tags=['trips'])
+router = APIRouter(tags=['trips'])
 
 
-@router.get('/trips', response_model=TripQueryResponse)
+@router.get('/api/v1/ferry/trips', response_model=TripQueryResponse)
+@router.get('/api/trips', response_model=TripQueryResponse, include_in_schema=False)
 def list_trips(
     from_stop_id: str = Query(min_length=1, max_length=32),
     to_stop_id: str = Query(min_length=1, max_length=32),

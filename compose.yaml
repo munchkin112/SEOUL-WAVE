@@ -27,9 +27,17 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-}
       SITE_ACCESS_PASSWORDS: ${SITE_ACCESS_PASSWORDS:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-}
+      DATABASE_HOST: db
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB:-seoul_wave}
+      DATABASE_USER: ${POSTGRES_USER:-seoul_wave_app}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the repository root .env file}
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - ./backend/data/processed:/app/data/processed
+
   frontend:
     build: ./frontend
     ports:
