@@ -67,7 +67,7 @@ jobs:
         id: install
         run: python -m pip install -r requirements-dev.txt
 
-      - name: Create operational log tables
+      - name: Create operational and itinerary tables
         run: |
           python - <<'PY'
           import os
@@ -84,10 +84,16 @@ jobs:
               autocommit=True,
           )
           try:
-              migration_sql = Path(
-                  "migrations/003_operations_logging.sql"
-              ).read_text(encoding="utf-8")
-              connection.execute(migration_sql, prepare=False)
+              for migration_name in (
+                  "003_operations_logging.sql",
+                  "004_itinerary_runtime.sql",
+                  "005_itinerary_service_date.sql",
+                  "006_itinerary_critic_reviews.sql",
+              ):
+                  migration_sql = Path("migrations", migration_name).read_text(
+                      encoding="utf-8"
+                  )
+                  connection.execute(migration_sql, prepare=False)
           finally:
               connection.close()
           PY

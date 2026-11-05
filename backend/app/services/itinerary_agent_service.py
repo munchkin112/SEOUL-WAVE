@@ -29,10 +29,11 @@ def run_itinerary_agent_flow(
     trip_context: dict[str, Any],
     candidates: list[dict[str, Any]],
     on_node_complete: Callable[[str, dict[str, Any]], None] | None = None,
+    run_id: UUID | None = None,
 ) -> dict[str, Any]:
     validate_agent_inputs(trip_context, candidates)
     run_started_at = perf_counter()
-    run_id = start_agent_run(connection)
+    run_id = run_id or start_agent_run(connection)
     initial_state: ItineraryAgentState = {
         'run_id': str(run_id),
         'trip_context': trip_context,
@@ -41,6 +42,7 @@ def run_itinerary_agent_flow(
     }
     graph_state: dict[str, Any] = dict(initial_state)
     completed_nodes: list[str] = []
+    critic_reviews: list[dict[str, Any]] = []
 
     try:
         graph = build_itinerary_graph(
@@ -53,6 +55,10 @@ def run_itinerary_agent_flow(
             for node_name, node_update in update.items():
                 graph_state.update(node_update)
                 completed_nodes.append(node_name)
+                if node_name == 'schedule_critic_agent':
+                    critic_review = node_update.get('critic_review')
+                    if isinstance(critic_review, dict):
+                        critic_reviews.append(dict(critic_review))
                 if on_node_complete is not None:
                     on_node_complete(node_name, node_update)
     except AgentNodeFailure as error:
@@ -249,6 +255,7 @@ def run_itinerary_agent_flow(
         'run_id': run_id,
         'status': 'FAILED' if final_result.get('result_type') == 'safe_stopped' else 'SUCCESS',
         'completed_nodes': completed_nodes,
+        'critic_reviews': critic_reviews,
         'final_result': final_result,
     }
 

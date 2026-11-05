@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel
@@ -18,6 +19,8 @@ class TimetableMetadata(BaseModel):
     operating_days_status: str
     separate_operational_notices_reviewed: bool
     service_date_status: Literal['unknown']
+    service_date: date | None = None
+    schedule_reuse_assumption: Literal['daily_schedule_assumed'] | None = None
 
 
 class StopListResponse(BaseModel):

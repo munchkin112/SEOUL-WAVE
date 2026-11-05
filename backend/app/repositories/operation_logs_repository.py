@@ -41,9 +41,16 @@ def map_rows(rows: list[tuple[Any, ...]], columns: tuple[str, ...]) -> list[dict
     return [map_row(row, columns) for row in rows if row is not None]
 
 
-def create_agent_run(connection: Connection) -> UUID:
+def create_agent_run(connection: Connection, run_id: UUID | None = None) -> UUID:
+    if run_id is None:
+        row = connection.execute(
+            "INSERT INTO agent_runs DEFAULT VALUES RETURNING run_id"
+        ).fetchone()
+        return row[0]
+
     row = connection.execute(
-        "INSERT INTO agent_runs DEFAULT VALUES RETURNING run_id"
+        "INSERT INTO agent_runs (run_id) VALUES (%s) RETURNING run_id",
+        (run_id,),
     ).fetchone()
     return row[0]
 
