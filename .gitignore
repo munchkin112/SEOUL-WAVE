@@ -1,6 +1,9 @@
+# Local environment files may contain API credentials. Keep the example template shareable.
 .env
 .env.*
 !.env.example
+# Do not commit local source datasets.
+**/data/raw/
 *.pem
 *accessKeys.csv
 .venv/

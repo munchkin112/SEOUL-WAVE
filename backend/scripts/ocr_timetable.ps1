@@ -1,7 +1,7 @@
 param(
-    [Parameter(Mandatory=$true)][string]$ImagePath,
-    [Parameter(Mandatory=$true)][string]$OutputPath,
-    [string]$LanguageTag = ''
+    [Parameter(Mandatory=$true)][string]$image_path,
+    [Parameter(Mandatory=$true)][string]$output_path,
+    [string]$language_tag = ''
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -11,26 +11,26 @@ Add-Type -AssemblyName System.Runtime.WindowsRuntime
 [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType=WindowsRuntime] | Out-Null
 [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime] | Out-Null
 [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType=WindowsRuntime] | Out-Null
-$script:asTaskMethod = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
+$script:as_task_method = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
     $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetGenericArguments().Count -eq 1 -and $_.GetParameters().Count -eq 1
 } | Select-Object -First 1
-function Wait-WinRtResult($Operation, [Type]$ResultType) {
-    $task = $script:asTaskMethod.MakeGenericMethod($ResultType).Invoke($null, @($Operation))
-    $task.GetAwaiter().GetResult()
+function wait_for_winrt_result($operation, [Type]$result_type) {
+    $winrt_task = $script:as_task_method.MakeGenericMethod($result_type).Invoke($null, @($operation))
+    $winrt_task.GetAwaiter().GetResult()
 }
-$file = Wait-WinRtResult ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
-$stream = Wait-WinRtResult ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-$decoder = Wait-WinRtResult ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-$bitmap = Wait-WinRtResult ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-if ($LanguageTag) {
+$image_file = wait_for_winrt_result ([Windows.Storage.StorageFile]::GetFileFromPathAsync($image_path)) ([Windows.Storage.StorageFile])
+$image_stream = wait_for_winrt_result ($image_file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$image_decoder = wait_for_winrt_result ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($image_stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$software_bitmap = wait_for_winrt_result ($image_decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+if ($language_tag) {
     [Windows.Globalization.Language, Windows.Globalization, ContentType=WindowsRuntime] | Out-Null
-    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new($LanguageTag))
+    $ocr_engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new($language_tag))
 } else {
-    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    $ocr_engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
 }
-if ($null -eq $engine) { throw 'No Windows OCR recognizer is installed.' }
-$result = Wait-WinRtResult ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-$words = @($result.Lines | ForEach-Object {
+if ($null -eq $ocr_engine) { throw 'No Windows OCR recognizer is installed.' }
+$ocr_result = wait_for_winrt_result ($ocr_engine.RecognizeAsync($software_bitmap)) ([Windows.Media.Ocr.OcrResult])
+$ocr_words = @($ocr_result.Lines | ForEach-Object {
     $_.Words | ForEach-Object {
         [pscustomobject]@{
             text = $_.Text
@@ -41,14 +41,14 @@ $words = @($result.Lines | ForEach-Object {
         }
     }
 })
-$output = [pscustomobject]@{
+$ocr_document = [pscustomobject]@{
     engine = 'Windows.Media.Ocr'
-    language = $engine.RecognizerLanguage.LanguageTag
-    width = $decoder.PixelWidth
-    height = $decoder.PixelHeight
-    text = $result.Text
-    words = $words
+    language = $ocr_engine.RecognizerLanguage.LanguageTag
+    width = $image_decoder.PixelWidth
+    height = $image_decoder.PixelHeight
+    text = $ocr_result.Text
+    words = $ocr_words
 }
-$output | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
-$stream.Dispose()
-Write-Output ('OCR words: ' + $words.Count)
+$ocr_document | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $output_path -Encoding UTF8
+$image_stream.Dispose()
+Write-Output ('OCR words: ' + $ocr_words.Count)
