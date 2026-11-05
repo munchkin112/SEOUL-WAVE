@@ -64,10 +64,44 @@ jobs:
         id: build
         run: npm run build
 
+  publish_frontend_image:
+    name: Publish Frontend image to ECR
+    needs:
+      - frontend
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_FRONTEND_ECR_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2.1.7
+
+      - name: Build and push frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_FRONTEND_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --file frontend/Dockerfile.prod --tag "$IMAGE_URI" frontend
+          docker push "$IMAGE_URI"
+
   discord_notify:
     name: Notify Frontend result on Discord
     needs:
       - frontend
+      - publish_frontend_image
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -76,6 +110,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_FRONTEND_ID: ${{ vars.DISCORD_FRONTEND_ID }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          FRONTEND_IMAGE_RESULT: ${{ needs.publish_frontend_image.result }}
           FRONTEND_INSTALL_RESULT: ${{ needs.frontend.outputs.install_result }}
           FRONTEND_LINT_RESULT: ${{ needs.frontend.outputs.lint_result }}
           FRONTEND_TYPECHECK_RESULT: ${{ needs.frontend.outputs.typecheck_result }}
@@ -115,6 +150,7 @@ jobs:
           lines = []
           mentioned_users = []
           result = os.environ.get("FRONTEND_RESULT", "unknown")
+          image_result = os.environ.get("FRONTEND_IMAGE_RESULT", "skipped")
 
           if result != "success":
               install_result = os.environ.get("FRONTEND_INSTALL_RESULT", "")
@@ -148,6 +184,21 @@ jobs:
               else:
                   lines.append("Frontend 담당자 멘션 — DISCORD_FRONTEND_ID 미설정 또는 형식 확인 필요")
                   print("Frontend 담당자 멘션 설정: 미사용")
+          elif image_result == "failure":
+              lines.extend([
+                  "🚨 SEOUL WAVE Frontend ECR 이미지 업로드 실패",
+                  "실패 단계 — AWS ECR 이미지 푸시",
+              ])
+              frontend_id = os.environ.get("DISCORD_FRONTEND_ID", "").strip()
+              if re.fullmatch(r"[0-9]{17,20}", frontend_id):
+                  lines.append(f"Frontend 담당자 — <@{frontend_id}>")
+                  mentioned_users.append(frontend_id)
+                  print("Frontend 담당자 멘션 설정: 사용")
+              else:
+                  lines.append("Frontend 담당자 멘션 — DISCORD_FRONTEND_ID 미설정 또는 형식 확인 필요")
+                  print("Frontend 담당자 멘션 설정: 미사용")
+          elif image_result == "success":
+              lines = ["✅ SEOUL WAVE Frontend CI 통과 및 ECR 이미지 업로드 완료"]
           else:
               lines = ["✅ SEOUL WAVE Frontend CI 성공"]
 
