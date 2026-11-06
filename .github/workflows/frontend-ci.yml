@@ -96,7 +96,8 @@ jobs:
         run: |
           IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           if [ -z "$VITE_KAKAO_MAP_JS_KEY" ]; then
-            echo "::warning::VITE_KAKAO_MAP_JS_KEY is empty; the Kakao map will be unavailable"
+            echo "::error::VITE_KAKAO_MAP_JS_KEY is required to publish the frontend image"
+            exit 1
           fi
           docker build --build-arg VITE_KAKAO_MAP_JS_KEY --file frontend/Dockerfile.prod --tag "$IMAGE_URI" frontend
           docker push "$IMAGE_URI"
