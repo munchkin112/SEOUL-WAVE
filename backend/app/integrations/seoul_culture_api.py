@@ -10,9 +10,17 @@ REQUEST_TIMEOUT_SECONDS = 8
 
 
 class SeoulCultureApiError(RuntimeError):
-    def __init__(self, error_code: str, message: str):
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        retryable: bool = False,
+        http_status: int | None = None,
+    ):
         super().__init__(message)
         self.error_code = error_code
+        self.retryable = retryable
+        self.http_status = http_status
 
 
 def fetch_event_page(
@@ -40,11 +48,14 @@ def fetch_event_page(
         raise SeoulCultureApiError(
             'culture_api_http_error',
             f'Seoul culture API returned HTTP {error.code}.',
+            retryable=(error.code in {408, 425, 429} or error.code >= 500),
+            http_status=error.code,
         ) from error
     except (URLError, TimeoutError, OSError, UnicodeError) as error:
         raise SeoulCultureApiError(
             'culture_api_unreachable',
             'Seoul culture API could not be reached.',
+            retryable=True,
         ) from error
 
     try:

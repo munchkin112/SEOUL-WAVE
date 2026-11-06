@@ -5,7 +5,10 @@ from uuid import UUID, uuid4
 
 from psycopg import Connection
 
-from app.repositories.operation_logs_repository import create_agent_run
+from app.repositories.operation_logs_repository import (
+    create_agent_run,
+    create_run_component_logs,
+)
 
 
 class VisitorSessionNotActive(RuntimeError):
@@ -79,6 +82,7 @@ def create_initial_execution(
             ),
         )
         create_agent_run(connection, run_id)
+        create_run_component_logs(connection, run_id)
         connection.execute(
             """INSERT INTO itinerary_executions (
                    run_id, group_id, generation_index, status, queue_status
@@ -132,6 +136,7 @@ def create_regeneration_execution(
         generation_index = regeneration_count + 1
         run_id = uuid4()
         create_agent_run(connection, run_id)
+        create_run_component_logs(connection, run_id)
         connection.execute(
             """INSERT INTO itinerary_executions (
                    run_id, group_id, generation_index, status, queue_status
@@ -145,15 +150,17 @@ def create_regeneration_execution(
 def claim_next_execution(
     connection: Connection,
     worker_id: str,
-    lease_seconds: int = 180,
+    lease_seconds: int = 90,
 ) -> dict[str, Any] | None:
     with connection.transaction():
         execution = connection.execute(
-            """SELECT run_id, group_id, generation_index, worker_attempt_count
+            """SELECT run_id, group_id, generation_index, worker_attempt_count,
+                      queue_status, worker_lease_until
                  FROM itinerary_executions
                 WHERE status = 'RUNNING'
                   AND (
-                      queue_status = 'QUEUED'
+                      (queue_status = 'QUEUED'
+                       AND (next_retry_at IS NULL OR next_retry_at <= now()))
                       OR (queue_status = 'CLAIMED' AND worker_lease_until < now())
                   )
                 ORDER BY accepted_at, run_id
@@ -163,13 +170,15 @@ def claim_next_execution(
         if execution is None:
             return None
 
-        run_id, group_id, generation_index, attempt_count = execution
+        run_id, group_id, generation_index, attempt_count, queue_status, _lease_until = execution
+        lease_expired = queue_status == 'CLAIMED'
         connection.execute(
             """UPDATE itinerary_executions
                   SET queue_status = 'CLAIMED',
                       worker_id = %s,
                       worker_lease_until = now() + (%s * interval '1 second'),
                       worker_attempt_count = worker_attempt_count + 1,
+                      next_retry_at = NULL,
                       execution_started_at = COALESCE(execution_started_at, now())
                 WHERE run_id = %s""",
             (worker_id, lease_seconds, run_id),
@@ -189,6 +198,7 @@ def claim_next_execution(
             'group_id': group_id,
             'generation_index': int(generation_index),
             'worker_attempt_count': int(attempt_count) + 1,
+            'lease_expired': lease_expired,
             'origin_stop_id': group[0],
             'destination_stop_id': group[1],
             'service_date': group[2],
@@ -316,6 +326,7 @@ def complete_execution_with_itinerary(
             """UPDATE itinerary_executions
                   SET status = 'SUCCESS', queue_status = 'DONE', completed_at = now(),
                       worker_lease_until = NULL,
+                      worker_id = NULL, next_retry_at = NULL,
                       reason_code = NULL, reason_message = NULL,
                       error_code = NULL, error_message = NULL, retryable = NULL
                 WHERE run_id = %s AND status = 'RUNNING'""",
@@ -340,7 +351,8 @@ def complete_execution_without_result(
     connection.execute(
         """UPDATE itinerary_executions
               SET status = 'NO_RESULT', queue_status = 'DONE', completed_at = now(),
-                  worker_lease_until = NULL, reason_code = %s, reason_message = %s,
+                  worker_lease_until = NULL, worker_id = NULL, next_retry_at = NULL,
+                  reason_code = %s, reason_message = %s,
                   error_code = NULL, error_message = NULL, retryable = NULL
             WHERE run_id = %s AND status = 'RUNNING'""",
         (reason_code, reason_message, run_id),
@@ -357,8 +369,26 @@ def fail_execution(
     connection.execute(
         """UPDATE itinerary_executions
               SET status = 'FAILED', queue_status = 'DONE', completed_at = now(),
-                  worker_lease_until = NULL, reason_code = NULL, reason_message = NULL,
+                  worker_lease_until = NULL, worker_id = NULL, next_retry_at = NULL,
+                  reason_code = NULL, reason_message = NULL,
                   error_code = %s, error_message = %s, retryable = %s
             WHERE run_id = %s AND status = 'RUNNING'""",
         (error_code, error_message, retryable, run_id),
     )
+
+
+def renew_execution_lease(
+    connection: Connection,
+    run_id: UUID,
+    worker_id: str,
+    lease_seconds: int = 90,
+) -> bool:
+    row = connection.execute(
+        """UPDATE itinerary_executions
+              SET worker_lease_until = now() + (%s * interval '1 second')
+            WHERE run_id = %s AND status = 'RUNNING'
+              AND queue_status = 'CLAIMED' AND worker_id = %s
+         RETURNING run_id""",
+        (lease_seconds, run_id, worker_id),
+    ).fetchone()
+    return row is not None
