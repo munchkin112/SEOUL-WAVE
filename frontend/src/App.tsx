@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { timetableClient, TimetableApiError } from "./api/timetable";
+import { itineraryClient, ItineraryApiError } from "./api/itineraries";
 import type {
   ActivityType,
   CompanionType,
@@ -8,7 +9,7 @@ import type {
   TimetableMetadata,
   TripDeparture,
 } from "./api/types";
-import { CalendarIcon, ShareIcon, ShipIcon } from "./components/icons";
+import { ShipIcon } from "./components/icons";
 import { HomePage } from "./pages/HomePage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { PlannerPage } from "./pages/PlannerPage";
@@ -28,6 +29,32 @@ import {
   todayInSeoul,
 } from "./recommendation";
 
+function waitForRecommendationPoll(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, 1200);
+    function abort() {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function recommendationErrorMessage(error: unknown): string {
+  if (error instanceof ItineraryApiError) return error.message;
+  return "추천 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function isRecommendationErrorRetryable(error: unknown): boolean {
+  return error instanceof ItineraryApiError ? error.status >= 500 : true;
+}
 function timetableErrorNotice(error: unknown): Notice {
   if (error instanceof TimetableApiError) {
     if (error.code === "route_not_in_timetable")
@@ -115,10 +142,10 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
   );
   const [formError, setFormError] = useState("");
   const [view, setView] = useState<ViewState>({ phase: "idle" });
+  const recommendationController = useRef<AbortController | null>(null);
   const [toast, setToast] = useState("");
-  const [alternativePending, setAlternativePending] = useState<Sailing | null>(
-    null,
-  );
+
+  useEffect(() => () => recommendationController.current?.abort(), []);
 
   useEffect(() => {
     const clock = window.setInterval(() => setNow(new Date()), 30_000);
@@ -259,26 +286,104 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     setTripsRetry((count) => count + 1);
   }
   function resetResult() {
+    recommendationController.current?.abort();
+    recommendationController.current = null;
     setView({ phase: "idle" });
     setFormError("");
-    setAlternativePending(null);
   }
 
-  function continueFromRoute() {
-    if (!canContinueFromRoute(fromStopId, toStopId, tripsPhase)) {
-      const message =
-        !fromStopId || !toStopId
-          ? "출발과 도착 선착장을 모두 선택해 주세요."
-          : fromStopId === toStopId
-            ? "출발과 도착 선착장은 다르게 선택해 주세요."
-            : tripsPhase === "loading"
-              ? "운항 시간표를 불러오는 중입니다. 잠시만 기다려 주세요."
-              : "운항 시간표를 확인할 수 없습니다. 시간표를 다시 불러와 주세요.";
-      setFormError(message);
-      return;
+  async function watchRecommendationRun(
+    groupId: string,
+    runId: string,
+    generationIndex: number,
+    sailing: Sailing,
+    signal: AbortSignal,
+  ) {
+    try {
+      while (!signal.aborted) {
+        const run = await itineraryClient.getRun(runId, signal);
+        if (run.status !== "RUNNING") {
+          setView({ phase: "done", sailing, groupId, run });
+          return;
+        }
+        setView({
+          phase: "loading",
+          sailing,
+          groupId,
+          runId,
+          generationIndex,
+        });
+        await waitForRecommendationPoll(signal);
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      setView({
+        phase: "error",
+        sailing,
+        groupId,
+        runId,
+        generationIndex,
+        message: recommendationErrorMessage(error),
+        retryable: isRecommendationErrorRetryable(error),
+      });
     }
-    setFormError("");
-    setStep(nextPlannerStep("route"));
+  }
+
+  async function startRecommendation(sailing: Sailing, groupId?: string) {
+    recommendationController.current?.abort();
+    const controller = new AbortController();
+    recommendationController.current = controller;
+    const previousGenerationIndex =
+      view.phase === "done"
+        ? view.run.generation_index
+        : view.phase === "error"
+          ? view.generationIndex
+          : 0;
+    const pendingGenerationIndex = groupId
+      ? Math.min(previousGenerationIndex + 1, 2)
+      : 0;
+
+    setView({
+      phase: "loading",
+      sailing,
+      groupId: groupId ?? null,
+      runId: null,
+      generationIndex: pendingGenerationIndex,
+    });
+
+    try {
+      const accepted = groupId
+        ? await itineraryClient.regenerate(groupId, controller.signal)
+        : await itineraryClient.create(
+            {
+              service_date: todayInSeoul(new Date(sailing.departure)),
+              origin_stop_id: fromStopId,
+              destination_stop_id: toStopId,
+              preferred_departure_time: formatTime(sailing.departure),
+              companion_type: companionType,
+              activity_type: activityType,
+            },
+            controller.signal,
+          );
+      await watchRecommendationRun(
+        accepted.group_id,
+        accepted.run_id,
+        accepted.generation_index,
+        sailing,
+        controller.signal,
+      );
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setView({
+        phase: "error",
+        sailing,
+        groupId: groupId ?? null,
+        runId: null,
+        generationIndex: pendingGenerationIndex,
+        message: recommendationErrorMessage(error),
+        retryable: isRecommendationErrorRetryable(error),
+      });
+    }
   }
 
   function requestRecommendation(sailingOverride?: Sailing): boolean {
@@ -291,7 +396,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
       return false;
     }
     if (tripsPhase === "loading") {
-      setFormError("시간표를 불러오는 중입니다. 잠시만 기다려 주세요.");
+      setFormError("운항 시간표를 불러오는 중입니다. 잠시만 기다려 주세요.");
       return false;
     }
     if (tripsPhase === "error") {
@@ -318,11 +423,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     }
 
     setFormError("");
-    setView({
-      phase: "done",
-      result: { status: "unavailable", reason: "api" },
-      sailing: target,
-    });
+    void startRecommendation(target);
     return true;
   }
 
@@ -330,24 +431,46 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     event.preventDefault();
     if (requestRecommendation()) setStep("result");
   }
-  function handleAlternative(proposed: Sailing) {
-    const current = selected;
-    if (!current) return;
-    const earlier = sailings
-      .filter((item) => Date.parse(item.departure) < Date.parse(current.departure))
-      .sort(
-        (left, right) =>
-          Date.parse(right.departure) - Date.parse(left.departure),
-      )[0];
-    if (!earlier) {
-      setFormError("이 구간에는 선택할 수 있는 더 이른 회차가 없습니다.");
+
+  function retryRecommendation() {
+    if (view.phase !== "error") return;
+    if (view.runId && view.groupId) {
+      recommendationController.current?.abort();
+      const controller = new AbortController();
+      recommendationController.current = controller;
+      setView({
+        phase: "loading",
+        sailing: view.sailing,
+        groupId: view.groupId,
+        runId: view.runId,
+        generationIndex: view.generationIndex,
+      });
+      void watchRecommendationRun(
+        view.groupId,
+        view.runId,
+        view.generationIndex,
+        view.sailing,
+        controller.signal,
+      );
       return;
     }
-    if (Date.parse(proposed.departure) >= Date.parse(current.departure)) {
-      setFormError("변경 제안이 원래 회차보다 이르지 않습니다.");
+    void startRecommendation(view.sailing, view.groupId ?? undefined);
+  }
+  function continueFromRoute() {
+    if (!canContinueFromRoute(fromStopId, toStopId, tripsPhase)) {
+      const message =
+        !fromStopId || !toStopId
+          ? "출발과 도착 선착장을 모두 선택해 주세요."
+          : fromStopId === toStopId
+            ? "출발과 도착 선착장은 다르게 선택해 주세요."
+            : tripsPhase === "loading"
+              ? "운항 시간표를 불러오는 중입니다. 잠시만 기다려 주세요."
+              : "운항 시간표를 확인할 수 없습니다. 시간표를 다시 불러와 주세요.";
+      setFormError(message);
       return;
     }
-    setAlternativePending(earlier);
+    setFormError("");
+    setStep(nextPlannerStep("route"));
   }
 
   function shareConditions() {
@@ -432,13 +555,6 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
         </nav>
         <div className="header-actions">
           <button
-            className="share-button"
-            type="button"
-            onClick={shareConditions}
-          >
-            <ShareIcon /> 조건 공유
-          </button>
-          <button
             className="logout-button"
             type="button"
             onClick={() => void handleLogout()}
@@ -507,10 +623,10 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
             loading={loading}
             originName={originName}
             destinationName={destinationName}
-            onRetry={() => {
-              if (view.phase === "done") requestRecommendation(view.sailing);
+            onRetry={retryRecommendation}
+            onRegenerate={() => {
+              if (view.phase === "done") void startRecommendation(view.sailing, view.groupId);
             }}
-            onChangeSailing={handleAlternative}
             onShare={shareConditions}
             onPrint={() => window.print()}
             onSetStep={setStep}
@@ -523,46 +639,6 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
         </footer>
       </main>
       {loading && <LoadingDialog />}
-      {alternativePending && (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="confirm-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="alternative-title"
-          >
-            <span className="dialog-icon">
-              <CalendarIcon />
-            </span>
-            <h2 id="alternative-title">이전 회차로 바꿀까요?</h2>
-            <p>
-              {formatTime(alternativePending.departure)} 출발 회차로 조건을 다시
-              확인합니다.
-            </p>
-            <div className="dialog-actions">
-              <button
-                className="outline-button"
-                type="button"
-                onClick={() => setAlternativePending(null)}
-              >
-                취소
-              </button>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => {
-                  const next = alternativePending;
-                  setSailingId(next.id);
-                  setAlternativePending(null);
-                  void requestRecommendation(next);
-                }}
-              >
-                회차 변경
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
       {toast && (
         <div className="toast" role="status" aria-live="polite">
           <span className="toast-check">✓</span>
