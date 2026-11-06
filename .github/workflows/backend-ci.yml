@@ -70,36 +70,7 @@ jobs:
 
       - name: Create place, operational, and itinerary tables
         id: migrate
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          import psycopg
-
-          connection = psycopg.connect(
-              host=os.environ["DATABASE_HOST"],
-              port=os.environ["DATABASE_PORT"],
-              dbname=os.environ["DATABASE_NAME"],
-              user=os.environ["DATABASE_USER"],
-              password=os.environ["DATABASE_PASSWORD"],
-              autocommit=True,
-          )
-          try:
-              for migration_name in (
-                  "002_create_places.sql",
-                  "003_operations_logging.sql",
-                  "004_itinerary_runtime.sql",
-                  "005_itinerary_service_date.sql",
-                  "006_itinerary_critic_reviews.sql",
-              ):
-                  migration_sql = Path("migrations", migration_name).read_text(
-                      encoding="utf-8"
-                  )
-                  connection.execute(migration_sql, prepare=False)
-          finally:
-              connection.close()
-          PY
+        run: python scripts/apply_migrations.py --apply
 
       - name: Run backend tests
         id: test
