@@ -1630,6 +1630,73 @@ p {
   margin-top: 14px;
 }
 
+.kakao-route-map {
+  margin-top: 24px;
+  border: 1px solid #dfe2ff;
+  border-radius: 20px;
+  padding: 20px;
+  background: #fafaff;
+}
+
+.kakao-route-map-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.kakao-route-map-heading h3 {
+  margin: 4px 0 0;
+}
+
+.kakao-route-map-badge {
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #3730a3;
+  background: #e9e7ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kakao-route-map-canvas {
+  min-height: 320px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #e8ecf7;
+}
+
+.kakao-route-map-label {
+  padding: 6px 9px;
+  border: 1px solid #dfe2ff;
+  border-radius: 8px;
+  background: #fff;
+  color: #20245b;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgb(20 24 80 / 12%);
+}
+
+.kakao-route-map-notice,
+.kakao-route-map-footnote {
+  margin: 0;
+  color: #596078;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.kakao-route-map-notice {
+  padding: 18px;
+  border-radius: 12px;
+  background: #f0f1ff;
+}
+
+.kakao-route-map-footnote {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
 .print-button {
   min-height: 39px;
   border-radius: 10px;

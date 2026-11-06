@@ -65,6 +65,7 @@ services:
       - "5173:5173"
     environment:
       VITE_PROXY_TARGET: http://backend:8000
+      VITE_KAKAO_MAP_JS_KEY: ${VITE_KAKAO_MAP_JS_KEY:-}
     volumes:
       - ./frontend:/app
       - /app/node_modules
