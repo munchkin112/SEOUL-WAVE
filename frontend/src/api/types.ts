@@ -123,3 +123,70 @@ export interface TripQueryResponse {
   metadata: TimetableMetadata;
   departures: TripDeparture[];
 }
+
+export type ItineraryRunStatus = "RUNNING" | "SUCCESS" | "NO_RESULT" | "FAILED";
+export type ItineraryItemType = "FERRY" | "EVENT" | "PLACE" | "WALK";
+export type ItinerarySourceType = "TIMETABLE" | "CULTURE_EVENT" | "PLACE_CATALOG";
+
+export interface ItineraryCreateRequest {
+  service_date: string;
+  origin_stop_id: string;
+  destination_stop_id: string;
+  preferred_departure_time: string;
+  companion_type: CompanionType;
+  activity_type: ActivityType;
+}
+
+export interface ItineraryAcceptedResponse {
+  group_id: string;
+  run_id: string;
+  generation_index: number;
+  status: "RUNNING";
+}
+
+export interface ItinerarySource {
+  type: ItinerarySourceType;
+  title: string;
+  url: string | null;
+}
+
+export interface ItineraryStopReference {
+  stop_id: string;
+  name: string;
+}
+
+export interface ItineraryLocation {
+  latitude: number;
+  longitude: number;
+}
+
+export interface ItineraryItem {
+  sequence_no: number;
+  item_type: ItineraryItemType;
+  title: string;
+  start_at: string | null;
+  end_at: string | null;
+  reason: string;
+  sources: ItinerarySource[];
+  location: ItineraryLocation | null;
+  place_name: string | null;
+  address: string | null;
+  departure_stop: ItineraryStopReference | null;
+  arrival_stop: ItineraryStopReference | null;
+}
+
+export interface Itinerary {
+  id: string;
+  title: string;
+  items: ItineraryItem[];
+}
+
+export interface ItineraryRunResponse {
+  group_id: string;
+  run_id: string;
+  generation_index: number;
+  status: ItineraryRunStatus;
+  itinerary: Itinerary | null;
+  reason: { code: string; message: string } | null;
+  error: { code: string; message: string; retryable: boolean } | null;
+}

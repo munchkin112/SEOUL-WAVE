@@ -1,4 +1,4 @@
-import { CalendarIcon, ShareIcon, ShipIcon, SparkIcon } from "../components/icons";
+import { CalendarIcon, ShareIcon, ShipIcon, SparkIcon, WarningIcon } from "../components/icons";
 
 export interface HomePageProps {
   onStart: () => void;
@@ -32,6 +32,26 @@ export function HomePage({ onStart }: HomePageProps) {
         </div>
         <span className="landing-image-caption">서울 한강 나들이</span>
       </div>
+
+      <aside className="operating-notice" aria-labelledby="operating-notice-title">
+        <div className="operating-notice-summary">
+          <span className="operating-notice-icon"><ShipIcon /></span>
+          <div>
+            <p className="operating-notice-eyebrow">한강버스 운항 안내</p>
+            <h2 id="operating-notice-title"><span>연중무휴</span> 운항</h2>
+          </div>
+        </div>
+        <div className="operating-notice-details">
+          <p>
+            <CalendarIcon />
+            <span>월~금·주말·공휴일을 포함해 매일 운항합니다.</span>
+          </p>
+          <p className="operating-notice-weather">
+            <WarningIcon />
+            <span>강풍·비바람 등 기상 상황에 따라 안전 운항을 위해 일시 중단될 수 있습니다.</span>
+          </p>
+        </div>
+      </aside>
 
       <section className="landing-guide" id="guide" aria-labelledby="guide-title">
         <header className="landing-guide-heading">
