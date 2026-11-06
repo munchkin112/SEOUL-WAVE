@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CandidateMovementNote(BaseModel):
-    event_id: str
+    candidate_id: str
     note: str = Field(min_length=1, max_length=500)
     evidence_ids: list[str]
 
@@ -15,21 +15,22 @@ class MovementReview(BaseModel):
     uncertainties: list[str]
 
 
-class RecommendedEvent(BaseModel):
-    event_id: str
+class RecommendedCandidate(BaseModel):
+    candidate_id: str
     reason: str = Field(min_length=1, max_length=800)
     evidence_ids: list[str]
 
 
-class EventExplanation(BaseModel):
-    recommendations: list[RecommendedEvent] = Field(max_length=3)
+class CandidateExplanation(BaseModel):
+    recommendations: list[RecommendedCandidate] = Field(max_length=3)
 
 
 class CriticDateCheck(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
+    candidate_type: Literal['EVENT', 'PLACE']
     service_date_matches: bool
-    event_is_active_on_service_date: bool
+    event_is_active_on_service_date: bool | None
     evidence: list[str]
 
 

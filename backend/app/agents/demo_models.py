@@ -4,7 +4,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.agents.llm_client import AgentModelBundle
-from app.agents.schemas import CriticReview, EventExplanation, MovementReview
+from app.agents.schemas import CandidateExplanation, CriticReview, MovementReview
 
 
 class DemoChatModel:
@@ -41,8 +41,12 @@ class DemoStructuredCall:
                 ),
                 candidate_notes=[
                     {
-                        'event_id': candidate['event_id'],
-                        'note': f"검수 이동시간 {candidate['travel_minutes']}분",
+                        'candidate_id': candidate.get('candidate_id', candidate.get('event_id')),
+                        'note': (
+                            f"검수 이동시간 {candidate['travel_minutes']}분"
+                            if candidate.get('travel_minutes') is not None
+                            else '입력된 후보의 출처와 분류를 확인했습니다.'
+                        ),
                         'evidence_ids': candidate['evidence_ids'],
                     }
                     for candidate in payload['candidates']
@@ -50,35 +54,44 @@ class DemoStructuredCall:
                 uncertainties=[],
             )
 
-        if self.schema is EventExplanation:
+        if self.schema is CandidateExplanation:
             revision = payload.get('revision_instructions')
             recommendations = []
             for candidate in payload['candidates']:
                 if candidate.get('eligibility_status') != 'POSSIBLE':
                     continue
-                reason = (
-                    f"{candidate['title']}은(는) 확인된 이동시간 "
-                    f"{candidate['travel_minutes']}분 조건을 충족합니다."
-                )
+                if candidate.get('candidate_type') == 'PLACE':
+                    reason = (
+                        f"{candidate['title']}은(는) 선택한 도착 선착장 근처의 "
+                        '장소 카탈로그에 등록된 상설 장소입니다.'
+                    )
+                else:
+                    reason = (
+                        f"{candidate['title']}은(는) 확인된 이동시간 "
+                        f"{candidate['travel_minutes']}분 조건을 충족합니다."
+                    )
                 if revision:
                     reason += ' 검수 근거를 바탕으로 안내합니다.'
                 recommendations.append(
                     {
-                        'event_id': candidate['event_id'],
+                        'candidate_id': candidate.get('candidate_id', candidate.get('event_id')),
                         'reason': reason,
                         'evidence_ids': candidate['evidence_ids'],
                     }
                 )
-            return EventExplanation(recommendations=recommendations[:3])
+            return CandidateExplanation(recommendations=recommendations[:3])
 
         if self.schema is CriticReview:
             self.model.critic_call_count += 1
             trip_context = payload['trip_context']
             candidate = payload['candidates'][0] if payload['candidates'] else None
             date_check = {
+                'candidate_type': (candidate or {}).get('candidate_type', 'EVENT'),
                 'service_date_matches': bool(trip_context.get('service_date')),
-                'event_is_active_on_service_date': bool(
-                    candidate and candidate.get('event_is_active_on_service_date', True)
+                'event_is_active_on_service_date': (
+                    bool(candidate.get('event_is_active_on_service_date', True))
+                    if candidate and candidate.get('candidate_type', 'EVENT') == 'EVENT'
+                    else None
                 ),
                 'evidence': candidate.get('date_evidence', []) if candidate else [],
             }
