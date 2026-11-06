@@ -34,6 +34,9 @@ interface PlannerPageProps {
   tripsPhase: RequestPhase;
   trips: TripDeparture[];
   tripMetadata: TimetableMetadata | null;
+  serviceDate: string;
+  minServiceDate: string;
+  onServiceDateChange: (serviceDate: string) => void;
   setStep: Dispatch<SetStateAction<PlannerStep>>;
   continueFromRoute: () => void;
   originName: string;
@@ -68,6 +71,9 @@ export function PlannerPage({
   tripsPhase,
   trips,
   tripMetadata,
+  serviceDate,
+  minServiceDate,
+  onServiceDateChange,
   setStep,
   continueFromRoute,
   originName,
@@ -118,7 +124,7 @@ export function PlannerPage({
                   <ApiNoticeCard notice={tripsNotice} onRetry={retryTrips} />
                 )}
                 {stopsPhase === "ready" && tripsPhase === "ready" && fromStopId && toStopId && trips.length === 0 && (
-                  <p className="status-note" role="status">오늘은 선택한 구간의 운항 회차가 없습니다. 다른 구간을 선택해 주세요.</p>
+                  <p className="status-note" role="status">선택한 날짜에는 이 구간의 운항 회차가 없습니다. 다른 구간이나 날짜를 선택해 주세요.</p>
                 )}
                 {tripsPhase === "ready" && trips.length > 0 && tripMetadata && (
                   <div className="timetable-note">
@@ -150,7 +156,18 @@ export function PlannerPage({
                 <form id="planner-form" className="preferences-form" onSubmit={submit} noValidate>
                   <div className="form-grid preferences-grid">
                     <div className="form-field">
-                      <label htmlFor="sailing"><span className="field-symbol clock-symbol">◷</span> 오늘의 출발 회차</label>
+                      <label htmlFor="service-date"><span className="field-symbol"><CalendarIcon /></span> 여행 날짜</label>
+                      <input
+                        id="service-date"
+                        type="date"
+                        value={serviceDate}
+                        min={minServiceDate}
+                        disabled={loading}
+                        onChange={(event) => onServiceDateChange(event.target.value)}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="sailing"><span className="field-symbol clock-symbol">◷</span> 출발 회차</label>
                       <select
                         id="sailing"
                         value={selected ? sailingId : ""}
@@ -162,7 +179,7 @@ export function PlannerPage({
                         }}
                       >
                         <option value="">
-                          {tripsPhase === "loading" ? "시간표를 불러오는 중" : sailings.length ? "출발 시각을 선택해 주세요" : "오늘 남은 회차가 없습니다"}
+                          {tripsPhase === "loading" ? "시간표를 불러오는 중" : sailings.length ? "출발 시각을 선택해 주세요" : "선택한 날짜의 회차가 없습니다"}
                         </option>
                         {sailings.map((sailing) => (
                           <option key={sailing.id} value={sailing.id}>
@@ -209,7 +226,7 @@ export function PlannerPage({
                   {tripsPhase === "ready" && sailings.length === 0 && (
                     <div className="step-alert step-alert-info" role="status">
                       <span className="alert-icon"><CalendarIcon /></span>
-                      <div><strong>오늘 선택할 수 있는 배편이 없습니다</strong><p>선착장 선택 단계로 돌아가 다른 구간을 확인해 주세요.</p></div>
+                      <div><strong>선택한 날짜에 배편이 없습니다</strong><p>다른 날짜나 선착장 구간을 선택해 주세요.</p></div>
                     </div>
                   )}
                   {formError && (

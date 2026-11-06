@@ -18,6 +18,7 @@ interface TimetableClient {
     fromStopId: string,
     toStopId: string,
     signal?: AbortSignal,
+    serviceDate?: string,
   ): Promise<TripQueryResponse>;
 }
 
@@ -60,11 +61,12 @@ export function createTimetableClient(
     getStops(signal) {
       return request<StopListResponse>("/api/stops", signal);
     },
-    getTrips(fromStopId, toStopId, signal) {
+    getTrips(fromStopId, toStopId, signal, serviceDate) {
       const query = new URLSearchParams({
         from_stop_id: fromStopId,
         to_stop_id: toStopId,
       });
+      if (serviceDate) query.set("service_date", serviceDate);
       return request<TripQueryResponse>(`/api/trips?${query.toString()}`, signal);
     },
   };

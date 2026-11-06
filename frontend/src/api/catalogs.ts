@@ -97,6 +97,7 @@ interface CatalogClient {
     limit: number,
     offset: number,
     signal?: AbortSignal,
+    category?: PlaceCategory | null,
   ): Promise<PlaceListResponse>;
 }
 
@@ -137,11 +138,13 @@ export function createCatalogClient(
     return (await response.json()) as T;
   }
 
-  function pageQuery(limit: number, offset: number) {
-    return new URLSearchParams({
+  function pageQuery(limit: number, offset: number, category?: PlaceCategory | null) {
+    const query = new URLSearchParams({
       limit: String(limit),
       offset: String(offset),
-    }).toString();
+    });
+    if (category) query.set("category", category);
+    return query.toString();
   }
 
   return {
@@ -151,9 +154,9 @@ export function createCatalogClient(
         signal,
       );
     },
-    getPlaces(limit, offset, signal) {
+    getPlaces(limit, offset, signal, category) {
       return request<PlaceListResponse>(
-        `/api/v1/places?${pageQuery(limit, offset)}`,
+        `/api/v1/places?${pageQuery(limit, offset, category)}`,
         signal,
       );
     },

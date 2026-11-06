@@ -6,6 +6,7 @@ import {
   type PlaceCategory,
   type PlaceListResponse,
 } from "../api/catalogs";
+import { filterEventsByCategory, listEventCategories } from "../catalogFiltering";
 
 const PAGE_SIZE = 8;
 
@@ -14,27 +15,30 @@ type ResourceState<T> =
   | { status: "ready"; data: T }
   | { status: "error"; message: string };
 
-type PageLoader<T> = (
+type PageLoader<T, F extends string | null> = (
   limit: number,
   offset: number,
   signal: AbortSignal,
+  filter: F,
 ) => Promise<T>;
 
-function useCatalogPage<T>(
-  loader: PageLoader<T>,
+function useCatalogPage<T, F extends string | null>(
+  loader: PageLoader<T, F>,
   kind: "events" | "places",
   totalCountOf: (data: T) => number,
   itemCountOf: (data: T) => number,
+  initialFilter: F,
 ) {
   const [offset, setOffset] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
+  const [filter, setFilter] = useState<F>(initialFilter);
   const [resource, setResource] = useState<ResourceState<T>>({
     status: "loading",
   });
 
   useEffect(() => {
     const controller = new AbortController();
-    loader(PAGE_SIZE, offset, controller.signal)
+    loader(PAGE_SIZE, offset, controller.signal, filter)
       .then((data) => setResource({ status: "ready", data }))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -49,7 +53,7 @@ function useCatalogPage<T>(
       });
 
     return () => controller.abort();
-  }, [kind, loader, offset, retryCount]);
+  }, [filter, kind, loader, offset, retryCount]);
 
   const totalCount =
     resource.status === "ready" ? totalCountOf(resource.data) : 0;
@@ -58,6 +62,7 @@ function useCatalogPage<T>(
 
   return {
     resource,
+    filter,
     offset,
     totalCount,
     itemCount,
@@ -65,6 +70,12 @@ function useCatalogPage<T>(
     pageCount: Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
     hasPrevious: offset > 0,
     hasNext: offset + itemCount < totalCount,
+    selectFilter: (nextFilter: F) => {
+      if (filter === nextFilter && offset === 0) return;
+      setResource({ status: "loading" });
+      setOffset(0);
+      setFilter(nextFilter);
+    },
     previous: () => {
       setResource({ status: "loading" });
       setOffset((current) => Math.max(0, current - PAGE_SIZE));
@@ -80,10 +91,17 @@ function useCatalogPage<T>(
   };
 }
 
-const loadEvents: PageLoader<CultureEventListResponse> = (limit, offset, signal) =>
-  catalogClient.getEvents(limit, offset, signal);
-const loadPlaces: PageLoader<PlaceListResponse> = (limit, offset, signal) =>
-  catalogClient.getPlaces(limit, offset, signal);
+const loadEvents: PageLoader<CultureEventListResponse, string | null> = (
+  limit,
+  offset,
+  signal,
+) => catalogClient.getEvents(limit, offset, signal);
+const loadPlaces: PageLoader<PlaceListResponse, PlaceCategory | null> = (
+  limit,
+  offset,
+  signal,
+  category,
+) => catalogClient.getPlaces(limit, offset, signal, category);
 const eventTotalCount = (response: CultureEventListResponse) =>
   response.total_count;
 const eventItemCount = (response: CultureEventListResponse) =>
@@ -99,6 +117,55 @@ const placeCategoryNames: Record<PlaceCategory, string> = {
   EXHIBITION_HALL: "전시장",
   CULTURAL_SPACE: "문화공간",
 };
+
+const placeCategoryOptions: Array<{ value: PlaceCategory; label: string }> = [
+  { value: "MUSEUM", label: placeCategoryNames.MUSEUM },
+  { value: "ART_GALLERY", label: placeCategoryNames.ART_GALLERY },
+  { value: "BOTANICAL_GARDEN", label: placeCategoryNames.BOTANICAL_GARDEN },
+  { value: "PARK", label: placeCategoryNames.PARK },
+  { value: "EXHIBITION_HALL", label: placeCategoryNames.EXHIBITION_HALL },
+  { value: "CULTURAL_SPACE", label: placeCategoryNames.CULTURAL_SPACE },
+];
+
+function CategoryFilters<T extends string>({
+  label,
+  selected,
+  options,
+  totalCount,
+  onSelect,
+}: {
+  label: string;
+  selected: T | null;
+  options: Array<{ value: T; label: string; count?: number }>;
+  totalCount?: number;
+  onSelect: (value: T | null) => void;
+}) {
+  return (
+    <div className="catalog-category-filter" role="group" aria-label={label}>
+      <button
+        className={selected === null ? "is-active" : ""}
+        type="button"
+        aria-pressed={selected === null}
+        onClick={() => onSelect(null)}
+      >
+        전체
+        {totalCount !== undefined && <span>{totalCount}</span>}
+      </button>
+      {options.map((option) => (
+        <button
+          className={selected === option.value ? "is-active" : ""}
+          type="button"
+          aria-pressed={selected === option.value}
+          key={option.value}
+          onClick={() => onSelect(option.value)}
+        >
+          {option.label}
+          {option.count !== undefined && <span>{option.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function safeExternalUrl(value: string | null): string | null {
   if (!value) return null;
@@ -168,18 +235,38 @@ function CatalogPagination({
 }
 
 export function CatalogSections() {
-  const events = useCatalogPage(
+  const events = useCatalogPage<CultureEventListResponse, string | null>(
     loadEvents,
     "events",
     eventTotalCount,
     eventItemCount,
+    null,
   );
-  const places = useCatalogPage(
+  const places = useCatalogPage<PlaceListResponse, PlaceCategory | null>(
     loadPlaces,
     "places",
     placeTotalCount,
     placeItemCount,
+    null,
   );
+
+  const loadedEvents =
+    events.resource.status === "ready" ? events.resource.data.events : [];
+  const eventCategoryOptions = listEventCategories(loadedEvents).map(
+    (category) => ({
+      value: category,
+      label: category,
+      count: loadedEvents.filter((event) => event.category?.trim() === category)
+        .length,
+    }),
+  );
+  if (
+    events.filter &&
+    !eventCategoryOptions.some((option) => option.value === events.filter)
+  ) {
+    eventCategoryOptions.push({ value: events.filter, label: events.filter, count: 0 });
+  }
+  const visibleEvents = filterEventsByCategory(loadedEvents, events.filter);
 
   return (
     <div className="catalog-sections">
@@ -219,13 +306,27 @@ export function CatalogSections() {
         )}
         {events.resource.status === "ready" && (
           <>
+            <CategoryFilters
+              label="문화행사 분류"
+              selected={events.filter}
+              options={eventCategoryOptions}
+              totalCount={events.resource.data.events.length}
+              onSelect={events.selectFilter}
+            />
+            <p className="catalog-filter-note">
+              행사 분류는 현재 불러온 목록에서 선택할 수 있어요.
+            </p>
             {events.resource.data.events.length === 0 ? (
               <p className="catalog-status" role="status">
                 현재 표시할 문화행사가 없습니다.
               </p>
+            ) : visibleEvents.length === 0 ? (
+              <p className="catalog-status" role="status">
+                현재 목록에는 선택한 분류의 행사가 없습니다. 다른 목록을 확인하거나 전체를 선택해 주세요.
+              </p>
             ) : (
               <div className="catalog-event-grid">
-                {events.resource.data.events.map((event, index) => {
+                {visibleEvents.map((event, index) => {
                   const imageUrl = safeExternalUrl(event.main_image_url);
                   const detailUrl =
                     safeExternalUrl(event.culture_detail_url) ??
@@ -301,7 +402,9 @@ export function CatalogSections() {
           </div>
           {places.resource.status === "ready" && (
             <span className="catalog-total">
-              전체 {places.resource.data.total_count.toLocaleString()}곳
+              {places.filter
+                ? `${placeCategoryNames[places.filter]} ${places.resource.data.total_count.toLocaleString()}곳`
+                : `전체 ${places.resource.data.total_count.toLocaleString()}곳`}
             </span>
           )}
         </header>
@@ -321,9 +424,17 @@ export function CatalogSections() {
         )}
         {places.resource.status === "ready" && (
           <>
+            <CategoryFilters
+              label="문화·휴식 공간 분류"
+              selected={places.filter}
+              options={placeCategoryOptions}
+              onSelect={places.selectFilter}
+            />
             {places.resource.data.places.length === 0 ? (
               <p className="catalog-status" role="status">
-                현재 표시할 장소가 없습니다.
+                {places.filter
+                  ? `현재 표시할 ${placeCategoryNames[places.filter]}이(가) 없습니다.`
+                  : "현재 표시할 장소가 없습니다."}
               </p>
             ) : (
               <div className="catalog-place-grid">

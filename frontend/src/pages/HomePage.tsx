@@ -30,7 +30,6 @@ export function HomePage({ onStart }: HomePageProps) {
             나들이 시작하기 <span aria-hidden="true">→</span>
           </button>
         </div>
-        <span className="landing-image-caption">서울 한강 나들이</span>
       </div>
 
       <aside className="operating-notice" aria-labelledby="operating-notice-title">

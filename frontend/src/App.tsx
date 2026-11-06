@@ -55,6 +55,17 @@ function recommendationErrorMessage(error: unknown): string {
 function isRecommendationErrorRetryable(error: unknown): boolean {
   return error instanceof ItineraryApiError ? error.status >= 500 : true;
 }
+
+function initialServiceDate(value: string | null): string {
+  const today = todayInSeoul();
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value < today)
+    return today;
+  const parsedDate = new Date(`${value}T00:00:00+09:00`);
+  return Number.isFinite(parsedDate.getTime()) && todayInSeoul(parsedDate) === value
+    ? value
+    : today;
+}
+
 function timetableErrorNotice(error: unknown): Notice {
   if (error instanceof TimetableApiError) {
     if (error.code === "route_not_in_timetable")
@@ -102,6 +113,9 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const initialParams = useMemo(
     () => new URLSearchParams(window.location.search),
     [],
+  );
+  const [serviceDate, setServiceDate] = useState(() =>
+    initialServiceDate(initialParams.get("service_date")),
   );
   const [fromStopId, setFromStopId] = useState(
     () => initialParams.get("from") ?? "",
@@ -185,7 +199,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
 
     const controller = new AbortController();
     timetableClient
-      .getTrips(fromStopId, toStopId, controller.signal)
+      .getTrips(fromStopId, toStopId, controller.signal, serviceDate)
       .then((response) => {
         setTrips(response.departures);
         setTripMetadata(response.metadata);
@@ -212,9 +226,8 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
         setTripsPhase("error");
       });
     return () => controller.abort();
-  }, [fromStopId, toStopId, stopsPhase, tripsRetry]);
+  }, [fromStopId, toStopId, serviceDate, stopsPhase, tripsRetry]);
   const sailings = useMemo(() => {
-    const serviceDate = todayInSeoul(now);
     return availableSailings(
       trips.map((trip) => sailingFromTrip(trip, serviceDate)),
       now,
@@ -222,7 +235,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
       (sailing) =>
         todayInSeoul(new Date(sailing.departure)) === serviceDate,
     );
-  }, [trips, now]);
+  }, [trips, now, serviceDate]);
   const selected = sailings.find((sailing) => sailing.id === sailingId);
   const loading = view.phase === "loading";
   const originName =
@@ -253,6 +266,18 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
       setTripsNotice(null);
       setTripsPhase(nextFrom && nextTo ? "loading" : "ready");
     }
+  }
+
+  function updateServiceDate(nextDate: string) {
+    if (!nextDate || nextDate < todayInSeoul(now) || nextDate === serviceDate)
+      return;
+    resetResult();
+    setServiceDate(nextDate);
+    setSailingId("");
+    setTrips([]);
+    setTripMetadata(null);
+    setTripsNotice(null);
+    setTripsPhase(fromStopId && toStopId ? "loading" : "ready");
   }
 
   function selectMapStop(stopId: string) {
@@ -356,7 +381,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
         ? await itineraryClient.regenerate(groupId, controller.signal)
         : await itineraryClient.create(
             {
-              service_date: todayInSeoul(new Date(sailing.departure)),
+              service_date: serviceDate,
               origin_stop_id: fromStopId,
               destination_stop_id: toStopId,
               preferred_departure_time: formatTime(sailing.departure),
@@ -404,18 +429,18 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
       return false;
     }
     if (!sailingOverride && !canContinueFromPreferences(sailingId)) {
-      setFormError("오늘 출발할 배편을 선택해 주세요.");
+      setFormError("선택한 날짜의 출발 회차를 선택해 주세요.");
       return false;
     }
     const target = sailingOverride ?? selected;
     if (!target) {
-      setFormError("오늘 아직 출발하지 않은 회차를 선택해 주세요.");
+      setFormError("선택한 날짜의 출발 회차를 선택해 주세요.");
       return false;
     }
     const checkedNow = new Date();
     if (
       Date.parse(target.departure) <= checkedNow.getTime() ||
-      todayInSeoul(new Date(target.departure)) !== todayInSeoul(checkedNow)
+      todayInSeoul(new Date(target.departure)) !== serviceDate
     ) {
       setNow(checkedNow);
       setFormError("출발 시간이 지난 회차입니다. 다른 회차를 선택해 주세요.");
@@ -481,6 +506,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     const url = new URL(window.location.href);
     url.searchParams.set("from", fromStopId);
     url.searchParams.set("to", toStopId);
+    url.searchParams.set("service_date", serviceDate);
     url.searchParams.set("departure", formatTime(selected.departure));
     url.searchParams.set("companion_type", companionType);
     url.searchParams.set("activity_type", activityType);
@@ -600,6 +626,9 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
             tripsPhase={tripsPhase}
             trips={trips}
             tripMetadata={tripMetadata}
+            serviceDate={serviceDate}
+            minServiceDate={todayInSeoul(now)}
+            onServiceDateChange={updateServiceDate}
             setStep={setStep}
             continueFromRoute={continueFromRoute}
             originName={originName}

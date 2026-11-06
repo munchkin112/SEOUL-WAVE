@@ -670,7 +670,8 @@ p {
   line-height: 12px;
 }
 
-.form-field select {
+.form-field select,
+.form-field input[type="date"] {
   width: 100%;
   min-height: 47px;
   border: 1px solid #d8dcf1;
@@ -681,11 +682,13 @@ p {
   font-weight: 700;
 }
 
-.form-field select {
+.form-field select,
+.form-field input[type="date"] {
   padding: 0 13px;
 }
 
-.form-field select:disabled {
+.form-field select:disabled,
+.form-field input[type="date"]:disabled {
   background: #f5f6fb;
   color: #8990a7;
 }
@@ -2431,12 +2434,13 @@ p {
 }
 
 .preferences-grid {
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 20px;
   padding: 4px 0 12px;
 }
 
-.preferences-grid .form-field select {
+.preferences-grid .form-field select,
+.preferences-grid .form-field input[type="date"] {
   min-height: 54px;
   font-size: 15px;
 }
@@ -2577,6 +2581,74 @@ p {
   color: #5252c5;
   font-size: 10px;
   font-weight: 800;
+}
+
+.catalog-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.catalog-category-filter button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dfe2f5;
+  border-radius: 999px;
+  background: #fff;
+  padding: 0 12px;
+  color: #555d79;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.catalog-category-filter button:hover {
+  transform: translateY(-1px);
+  border-color: #a9a9ff;
+  color: #4544d7;
+}
+
+.catalog-category-filter button:focus-visible {
+  outline: 3px solid rgb(74 73 238 / 24%);
+  outline-offset: 2px;
+}
+
+.catalog-category-filter button.is-active {
+  border-color: #514df1;
+  background: #514df1;
+  color: #fff;
+}
+
+.catalog-category-filter button span {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 65%);
+  padding: 0 5px;
+  color: #514df1;
+  font-size: 9px;
+}
+
+.catalog-category-filter button.is-active span {
+  background: rgb(255 255 255 / 20%);
+  color: #fff;
+}
+
+.catalog-filter-note {
+  margin: -2px 0 13px;
+  color: #747b96;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .catalog-event-grid {
