@@ -10,9 +10,20 @@ export function EventCard({
   sailing: Sailing;
   limited: boolean;
 }) {
-  const endsAt = new Date(
-    Date.parse(sailing.departure) + event.totalMinutes * 60_000,
-  ).toISOString();
+  const endsAt = event.totalMinutes === null
+    ? null
+    : new Date(
+      Date.parse(sailing.departure) + event.totalMinutes * 60_000,
+    ).toISOString();
+  const movementLabel = event.travelMinutes === null
+    ? "이동 시간 미확인"
+    : `하선 후 이동 ${event.travelMinutes}분`;
+  const durationLabel = event.travelMinutes === null || event.visitMinutes === null
+    ? "이동·관람 시간 미확인"
+    : `이동 ${event.travelMinutes}분 · 관람 ${event.visitMinutes}분`;
+  const scheduleLabel = event.startAt
+    ? `${formatTime(event.startAt)} 시작 예정`
+    : "행사 시간 미확인";
 
   return (
     <article className="event-card">
@@ -25,7 +36,7 @@ export function EventCard({
         <p className="eyebrow">{event.category}</p>
         <h3>{event.title}</h3>
         <p className="event-place">
-          {event.place} <span>· 하선 후 이동 {event.travelMinutes}분</span>
+          {event.place} <span>· {movementLabel}</span>
         </p>
         <p className="event-reason">
           {limited
@@ -35,9 +46,7 @@ export function EventCard({
         <dl className="event-details">
           <div>
             <dt>이동·관람</dt>
-            <dd>
-              이동 {event.travelMinutes}분 · 관람 {event.visitMinutes}분
-            </dd>
+            <dd>{durationLabel}</dd>
           </div>
           <div>
             <dt>운영·요금</dt>
@@ -48,17 +57,22 @@ export function EventCard({
           <div>
             <dt>일정 예시</dt>
             <dd>
-              {formatTime(sailing.departure)} 출발 · 전체 약 {event.totalMinutes}분
-              <span className="screen-reader-only">
-                {" "}
-                종료 예상 {formatTime(endsAt)}
-              </span>
+              {scheduleLabel}
+              {endsAt && (
+                <span className="screen-reader-only">
+                  {" "}종료 예상 {formatTime(endsAt)}
+                </span>
+              )}
             </dd>
           </div>
         </dl>
         <footer className="event-source">
-          수집 {formatTime(event.collectedAt)} · 검수{" "}
-          {formatTime(event.reviewedAt)} KST
+          {event.collectedAt && event.reviewedAt
+            ? `수집 ${formatTime(event.collectedAt)} · 검수 ${formatTime(event.reviewedAt)} KST`
+            : "백엔드 검수 결과 기반 추천"}
+          {event.sourceUrl && (
+            <a href={event.sourceUrl} target="_blank" rel="noreferrer"> 출처</a>
+          )}
         </footer>
       </div>
     </article>

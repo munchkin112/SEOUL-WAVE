@@ -39,5 +39,5 @@ def list_trips(
         ) from error
     response = render_trip_query_response(snapshot, estimates)
     response.metadata.service_date = selected_date
-    response.metadata.schedule_reuse_assumption = 'daily_schedule_assumed'
+    response.metadata.schedule_reuse_assumption = 'daily_service_with_weather_exception'
     return response

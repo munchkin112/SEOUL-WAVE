@@ -18,9 +18,14 @@ class TimetableMetadata(BaseModel):
     effective_until: str | None
     operating_days_status: str
     separate_operational_notices_reviewed: bool
+    operation_policy_confirmed: bool
+    weather_disruption_notice: str
     service_date_status: Literal['unknown']
     service_date: date | None = None
-    schedule_reuse_assumption: Literal['daily_schedule_assumed'] | None = None
+    schedule_reuse_assumption: Literal[
+        'daily_schedule_assumed',
+        'daily_service_with_weather_exception',
+    ] | None = None
 
 
 class StopListResponse(BaseModel):

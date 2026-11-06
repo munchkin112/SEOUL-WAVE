@@ -107,11 +107,11 @@ function Results({
         <span className="state-symbol">
           <CalendarIcon />
         </span>
-        <h3>오늘 조건에 맞는 검수 문화행사가 없습니다</h3>
+        <h3>선택한 조건에 맞는 문화행사가 없습니다</h3>
         <p>
-          선택한 배편과 활동 유형에 맞는 후보가 없습니다.
+          {result.message ?? "선택한 배편과 활동 유형에 맞는 후보가 없습니다."}
           <br />
-          다른 회차나 활동 유형을 선택해 다시 확인해 주세요.
+          다른 날짜·회차나 활동 유형을 선택해 다시 확인해 주세요.
         </p>
       </div>
     );
@@ -128,13 +128,13 @@ function Results({
         eyebrow: "추천 기능 이용 불가",
         title: "아직 문화행사 추천을 제공할 수 없습니다",
         description:
-          "선택한 배편과 나들이 조건은 확인했습니다. 문화행사 추천 기능이 연결되면 결과를 확인할 수 있습니다.",
+          result.message ?? "선택한 배편과 나들이 조건으로 추천을 생성하지 못했습니다.",
       },
       db: {
         eyebrow: "행사 정보 저장소 연결 오류",
         title: "행사 정보를 확인할 수 없습니다",
         description:
-          "행사 정보를 저장한 데이터베이스에 연결하지 못했습니다. 데이터베이스 복구 후 다시 시도해 주세요.",
+          result.message ?? "행사 정보를 확인할 수 없습니다. 데이터베이스 복구 후 다시 시도해 주세요.",
       },
     }[result.reason];
     return (
@@ -241,14 +241,16 @@ function ScheduleTimeline({
   event,
 }: {
   sailing: Sailing;
-  event: { travelMinutes: number; visitMinutes: number };
+  event: { startAt?: string | null; endAt?: string | null; travelMinutes: number | null; visitMinutes: number | null };
 }) {
-  const eventArrival = new Date(
-    Date.parse(sailing.arrival) + event.travelMinutes * 60_000,
-  ).toISOString();
-  const visitEnd = new Date(
-    Date.parse(eventArrival) + event.visitMinutes * 60_000,
-  ).toISOString();
+  const eventArrival = event.startAt ?? sailing.arrival;
+  const visitEnd = event.endAt ?? (
+    event.visitMinutes === null
+      ? null
+      : new Date(
+        Date.parse(eventArrival) + event.visitMinutes * 60_000,
+      ).toISOString()
+  );
   return (
     <section className="timeline-card" aria-label="추천 일정">
       <h3 className="subsection-title">
@@ -275,18 +277,20 @@ function ScheduleTimeline({
           <span className="timeline-dot" />
           <div>
             <time>{formatTime(eventArrival)}</time>
-            <strong>행사장 도착 예상</strong>
-            <small>하선 후 이동 {event.travelMinutes}분</small>
+            <strong>행사 시작 예정</strong>
+            <small>{event.startAt ? "공식 행사 시간" : "행사 시작 시각 미확인"}</small>
           </div>
         </li>
-        <li>
-          <span className="timeline-dot end-dot" />
-          <div>
-            <time>{formatTime(visitEnd)}</time>
-            <strong>관람 종료 예상</strong>
-            <small>관람 {event.visitMinutes}분</small>
-          </div>
-        </li>
+        {visitEnd && (
+          <li>
+            <span className="timeline-dot end-dot" />
+            <div>
+              <time>{formatTime(visitEnd)}</time>
+              <strong>관람 종료 예정</strong>
+              <small>{event.endAt ? "공식 행사 종료 시각" : `관람 ${event.visitMinutes}분`}</small>
+            </div>
+          </li>
+        )}
       </ol>
       <p className="timeline-footnote">
         이동·관람 소요시간은 행사 운영 정보와 함께 확인해 주세요.

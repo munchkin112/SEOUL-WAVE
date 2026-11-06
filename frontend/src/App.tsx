@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { timetableClient, TimetableApiError } from "./api/timetable";
+import {
+  recommendationClient,
+  RecommendationApiError,
+} from "./api/recommendations";
 import type {
   ActivityType,
   CompanionType,
@@ -115,6 +119,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
   );
   const [formError, setFormError] = useState("");
   const [view, setView] = useState<ViewState>({ phase: "idle" });
+  const recommendationAbortController = useRef<AbortController | null>(null);
   const [toast, setToast] = useState("");
   const [alternativePending, setAlternativePending] = useState<Sailing | null>(
     null,
@@ -259,6 +264,8 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     setTripsRetry((count) => count + 1);
   }
   function resetResult() {
+    recommendationAbortController.current?.abort();
+    recommendationAbortController.current = null;
     setView({ phase: "idle" });
     setFormError("");
     setAlternativePending(null);
@@ -281,7 +288,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     setStep(nextPlannerStep("route"));
   }
 
-  function requestRecommendation(sailingOverride?: Sailing): boolean {
+  async function requestRecommendation(sailingOverride?: Sailing): Promise<boolean> {
     if (!fromStopId) {
       setFormError("출발 선착장을 선택해 주세요.");
       return false;
@@ -318,17 +325,51 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
     }
 
     setFormError("");
-    setView({
-      phase: "done",
-      result: { status: "unavailable", reason: "api" },
-      sailing: target,
-    });
+    recommendationAbortController.current?.abort();
+    const controller = new AbortController();
+    recommendationAbortController.current = controller;
+    setView({ phase: "loading" });
+    try {
+      const result = await recommendationClient.recommend(
+        { sailing: target, companionType, activityType },
+        controller.signal,
+      );
+      if (!controller.signal.aborted) {
+        setView({ phase: "done", result, sailing: target });
+      }
+    } catch (error: unknown) {
+      if (controller.signal.aborted) return false;
+      const recommendationError = error instanceof RecommendationApiError
+        ? error
+        : new RecommendationApiError(
+          "추천을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+          500,
+          "RECOMMENDATION_REQUEST_FAILED",
+          true,
+        );
+      setView({
+        phase: "done",
+        result: {
+          status: "unavailable",
+          reason: recommendationError.code === "DATABASE_UNAVAILABLE" ? "db" : "api",
+          code: recommendationError.code ?? undefined,
+          message: recommendationError.message,
+        },
+        sailing: target,
+      });
+    } finally {
+      if (recommendationAbortController.current === controller) {
+        recommendationAbortController.current = null;
+      }
+    }
     return true;
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (requestRecommendation()) setStep("result");
+    void requestRecommendation().then((accepted) => {
+      if (accepted) setStep("result");
+    });
   }
   function handleAlternative(proposed: Sailing) {
     const current = selected;
@@ -508,7 +549,7 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
             originName={originName}
             destinationName={destinationName}
             onRetry={() => {
-              if (view.phase === "done") requestRecommendation(view.sailing);
+              if (view.phase === "done") void requestRecommendation(view.sailing);
             }}
             onChangeSailing={handleAlternative}
             onShare={shareConditions}

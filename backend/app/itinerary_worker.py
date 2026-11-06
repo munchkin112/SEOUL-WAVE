@@ -117,7 +117,7 @@ def process_next_execution() -> bool:
             "service_date": execution["service_date"].isoformat(),
             "timetable_dataset_id": timetable.dataset_id,
             "timetable_source_url": timetable.source_url,
-            "timetable_assumption": "published departure schedule is reused every calendar day; operation is not confirmed",
+            "timetable_assumption": "published service operates every calendar day; temporary weather suspension remains possible",
             "event_source": "Seoul Open API aiViewCulture",
             "event_candidates": candidates,
             "destination_filter": filter_metadata,
@@ -372,8 +372,10 @@ def build_trip_context(
         "estimated_arrival_time": trip.estimated_arrival_time,
         "travel_minutes": trip.travel_minutes,
         "arrival_time_source": "calculated",
-        "verification_status": "estimated_daily_schedule",
+        "verification_status": "daily_service_weather_exception",
         "operating_days_status": timetable.operating_days_status,
+        "operation_policy_confirmed": timetable.operation_policy_confirmed,
+        "weather_disruption_notice": timetable.weather_disruption_notice,
         "destination_relevance": destination_relevance,
         "destination_evidence": (
             [
@@ -402,7 +404,7 @@ def build_itinerary(
     ferry = ItineraryItemResponse(
         sequence_no=1, item_type="FERRY", title=f"{stops[trip.from_stop_id].name_ko}에서 {stops[trip.to_stop_id].name_ko}로 이동",
         start_at=departure, end_at=arrival,
-        reason="공식 시간표의 출발 시각과 구간 소요시간으로 계산한 예상 이동입니다. 실제 운항 여부는 별도 공지를 확인해 주세요.",
+        reason="공식 시간표의 출발 시각과 구간 소요시간으로 계산한 예상 이동입니다. 한강버스는 매일 운항하지만 기상 상황에 따라 일시 중단될 수 있습니다.",
         sources=[SourceReference(type="TIMETABLE", title="한강버스 공식 시간표", url=timetable.source_url)],
         location=None, place_name=None, address=None,
         departure_stop=StopReference(stop_id=trip.from_stop_id, name=stops[trip.from_stop_id].name_ko),

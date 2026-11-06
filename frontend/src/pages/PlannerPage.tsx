@@ -124,7 +124,7 @@ export function PlannerPage({
                   <div className="timetable-note">
                     <span className="info-mark">i</span>
                     <p>
-                      도착 시각은 시간표의 소요시간으로 계산했습니다. 운항 여부는 출발 전 공지를 확인해 주세요.
+                      한강버스는 매일 운항하지만, {tripMetadata.weather_disruption_notice} 도착 시각은 시간표의 소요시간으로 계산한 예상값입니다.
                       <a href={tripMetadata.source_url} target="_blank" rel="noreferrer">시간표 출처 보기</a>
                     </p>
                   </div>
@@ -218,7 +218,7 @@ export function PlannerPage({
                   {tripMetadata && trips.length > 0 && (
                     <div className="timetable-note">
                       <span className="info-mark">i</span>
-                      <p>도착 시각은 시간표의 소요시간으로 계산했습니다. 운항 여부는 출발 전 공지를 확인해 주세요. <a href={tripMetadata.source_url} target="_blank" rel="noreferrer">시간표 출처 보기</a></p>
+                      <p>한강버스는 매일 운항하지만, {tripMetadata.weather_disruption_notice} 도착 시각은 시간표의 소요시간으로 계산한 예상값입니다. <a href={tripMetadata.source_url} target="_blank" rel="noreferrer">시간표 출처 보기</a></p>
                     </div>
                   )}
 
