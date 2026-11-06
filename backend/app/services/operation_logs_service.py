@@ -12,8 +12,8 @@ from app.models.operation_logs import (
 from app.repositories import operation_logs_repository as repository
 
 
-def start_agent_run(connection: Connection) -> UUID:
-    return repository.create_agent_run(connection)
+def start_agent_run(connection: Connection, run_id: UUID | None = None) -> UUID:
+    return repository.create_agent_run(connection, run_id)
 
 
 def finish_agent_run(

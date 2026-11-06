@@ -73,13 +73,52 @@ class DemoStructuredCall:
 
         if self.schema is CriticReview:
             self.model.critic_call_count += 1
+            trip_context = payload['trip_context']
+            candidate = payload['candidates'][0] if payload['candidates'] else None
+            date_check = {
+                'service_date_matches': bool(trip_context.get('service_date')),
+                'event_is_active_on_service_date': bool(
+                    candidate and candidate.get('event_is_active_on_service_date', True)
+                ),
+                'evidence': candidate.get('date_evidence', []) if candidate else [],
+            }
+            destination_check = {
+                'arrival_stop_matches': bool(trip_context.get('to_stop_id')),
+                'destination_relevance': trip_context.get(
+                    'destination_relevance', 'verified'
+                ),
+                'evidence': trip_context.get('destination_evidence', []),
+            }
+            timetable_check = {
+                'departure_time_matches_input': (
+                    trip_context.get('departure_time')
+                    == trip_context.get('requested_departure_time')
+                ),
+                'arrival_time_is_estimated': trip_context.get(
+                    'arrival_time_source'
+                ) == 'calculated',
+                'actual_operation_confirmed': False,
+                'evidence': trip_context.get('evidence_ids', []),
+            }
             if self.model.critic_call_count == 1 and payload['candidates']:
                 return CriticReview(
-                    decision='revise',
+                    decision='REVISE',
+                    date_check=date_check,
+                    destination_check=destination_check,
+                    timetable_check=timetable_check,
+                    unsupported_claims=[],
                     issues=['추천 이유에 검수 근거 안내가 더 분명해야 합니다.'],
                     revision_instructions='검수된 이동시간과 근거를 이유에 명시하세요.',
                 )
-            return CriticReview(decision='pass', issues=[], revision_instructions=None)
+            return CriticReview(
+                decision='PASS',
+                date_check=date_check,
+                destination_check=destination_check,
+                timetable_check=timetable_check,
+                unsupported_claims=[],
+                issues=[],
+                revision_instructions=None,
+            )
 
         raise ValueError(f'Unsupported demo output schema: {self.schema.__name__}')
 

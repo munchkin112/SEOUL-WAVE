@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CandidateMovementNote(BaseModel):
@@ -25,7 +25,40 @@ class EventExplanation(BaseModel):
     recommendations: list[RecommendedEvent] = Field(max_length=3)
 
 
+class CriticDateCheck(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    service_date_matches: bool
+    event_is_active_on_service_date: bool
+    evidence: list[str]
+
+
+class CriticDestinationCheck(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    arrival_stop_matches: bool
+    destination_relevance: Literal['verified', 'unknown', 'mismatch']
+    evidence: list[str]
+
+
+class CriticTimetableCheck(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    departure_time_matches_input: bool
+    arrival_time_is_estimated: bool
+    actual_operation_confirmed: bool
+    evidence: list[str]
+
+
 class CriticReview(BaseModel):
-    decision: Literal['pass', 'revise', 'stop']
+    """Strict, evidence-only contract for the schedule consistency Critic."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    decision: Literal['PASS', 'REVISE', 'REJECT']
+    date_check: CriticDateCheck
+    destination_check: CriticDestinationCheck
+    timetable_check: CriticTimetableCheck
+    unsupported_claims: list[str]
     issues: list[str]
     revision_instructions: str | None = Field(default=None, max_length=800)

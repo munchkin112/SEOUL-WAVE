@@ -8,6 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.controllers.auth_controller import router as auth_router
 from app.controllers.event_controller import router as event_router
+from app.controllers.itinerary_controller import router as itinerary_router
 from app.controllers.place_controller import router as place_router
 from app.controllers.ready_controller import router as ready_router
 from app.controllers.stop_controller import router as stop_router
@@ -54,6 +55,7 @@ app.include_router(stop_router, dependencies=authenticated_dependencies)
 app.include_router(trip_router, dependencies=authenticated_dependencies)
 app.include_router(event_router, dependencies=authenticated_dependencies)
 app.include_router(place_router, dependencies=authenticated_dependencies)
+app.include_router(itinerary_router, dependencies=authenticated_dependencies)
 app.include_router(ready_router)
 
 

@@ -1,3 +1,6 @@
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
+
 from app.models.timetable import Stop, TimetableSnapshot, TripEstimate
 from app.repositories.timetable_repository import get_timetable_snapshot
 
@@ -50,3 +53,59 @@ def list_trip_estimates_by_route(
         )
 
     return snapshot, estimates
+
+
+def list_departures_for_date(
+    from_stop_id: str,
+    to_stop_id: str,
+    service_date: date,
+) -> tuple[TimetableSnapshot, tuple[TripEstimate, ...]]:
+    snapshot, estimates = list_trip_estimates_by_route(from_stop_id, to_stop_id)
+    seoul_timezone = ZoneInfo(snapshot.timezone)
+    now_in_seoul = datetime.now(seoul_timezone)
+    if service_date < now_in_seoul.date():
+        raise TimetableQueryError(
+            422,
+            'service_date_in_past',
+            '지난 날짜의 배편은 조회할 수 없습니다.',
+        )
+    if service_date > now_in_seoul.date():
+        return snapshot, estimates
+
+    remaining_estimates = tuple(
+        estimate
+        for estimate in estimates
+        if time.fromisoformat(estimate.departure_time) > now_in_seoul.time().replace(
+            tzinfo=None, second=0, microsecond=0
+        )
+    )
+    return snapshot, remaining_estimates
+
+
+def get_departure_estimate(
+    from_stop_id: str,
+    to_stop_id: str,
+    service_date: date,
+    departure_time: time,
+) -> tuple[TimetableSnapshot, TripEstimate]:
+    snapshot, estimates = list_departures_for_date(
+        from_stop_id,
+        to_stop_id,
+        service_date,
+    )
+    requested_departure = departure_time.strftime('%H:%M')
+    matching_estimate = next(
+        (
+            estimate
+            for estimate in estimates
+            if estimate.departure_time == requested_departure
+        ),
+        None,
+    )
+    if matching_estimate is None:
+        raise TimetableQueryError(
+            422,
+            'departure_not_available',
+            '선택한 날짜와 출발 시각에 이용할 수 있는 시간표 편이 없습니다.',
+        )
+    return snapshot, matching_estimate
