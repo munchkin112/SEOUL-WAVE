@@ -1,4 +1,5 @@
 import type { ItineraryItem, Sailing } from "../api/types";
+import { KakaoRouteMap } from "../components/KakaoRouteMap";
 import {
   CalendarIcon,
   ShareIcon,
@@ -214,6 +215,7 @@ function ItineraryOutcome({
           <ItineraryItemCard key={item.sequence_no} item={item} />
         ))}
       </ol>
+      <KakaoRouteMap items={itinerary.items} sailing={view.sailing} />
       <div className="result-actions">
         <button className="outline-button" type="button" onClick={onShare}>
           <ShareIcon /> 조건 공유
