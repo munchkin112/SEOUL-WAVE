@@ -241,7 +241,7 @@ def test_unreviewed_candidates_are_rejected_before_run_creation(operation_connec
         'SELECT count(*) FROM agent_runs'
     ).fetchone()[0]
 
-    with pytest.raises(ValueError, match='Unreviewed events'):
+    with pytest.raises(ValueError, match='Unreviewed candidates'):
         run_itinerary_agent_flow(
             operation_connection,
             create_demo_agent_models(),

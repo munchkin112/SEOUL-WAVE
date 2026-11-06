@@ -57,6 +57,25 @@ def list_active_places(
     return tuple(Place(*row) for row in rows)
 
 
+def list_active_recommendation_places(
+    connection: Connection,
+    categories: tuple[str, ...],
+) -> tuple[Place, ...]:
+    if not categories:
+        return ()
+    rows = connection.execute(
+        f"""SELECT {PLACE_COLUMNS}
+              FROM places
+             WHERE is_active = TRUE
+               AND category = ANY(%s)
+               AND latitude IS NOT NULL
+               AND longitude IS NOT NULL
+             ORDER BY name, place_id""",
+        (list(categories),),
+    ).fetchall()
+    return tuple(Place(*row) for row in rows)
+
+
 def get_active_place(connection: Connection, place_id: str) -> Place | None:
     row = connection.execute(
         f"""SELECT {PLACE_COLUMNS}
