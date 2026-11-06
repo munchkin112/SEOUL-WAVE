@@ -92,9 +92,13 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ vars.ECR_FRONTEND_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
+          VITE_KAKAO_MAP_JS_KEY: ${{ vars.VITE_KAKAO_MAP_JS_KEY }}
         run: |
           IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker build --file frontend/Dockerfile.prod --tag "$IMAGE_URI" frontend
+          if [ -z "$VITE_KAKAO_MAP_JS_KEY" ]; then
+            echo "::warning::VITE_KAKAO_MAP_JS_KEY is empty; the Kakao map will be unavailable"
+          fi
+          docker build --build-arg VITE_KAKAO_MAP_JS_KEY --file frontend/Dockerfile.prod --tag "$IMAGE_URI" frontend
           docker push "$IMAGE_URI"
 
   discord_notify:
