@@ -6,6 +6,7 @@ from psycopg import Connection
 
 from app.repositories import itinerary_repository as repository
 from app.repositories.operation_logs_repository import finish_agent_run
+from app.recovery.controller import finish_run_recoveries
 from app.schemas.itinerary import ItineraryCreateRequest, ItineraryResponse
 from app.services.timetable_service import get_departure_estimate
 
@@ -100,6 +101,7 @@ def finish_execution_as_no_result(
             reason_code,
             reason_message,
         )
+        finish_run_recoveries(connection, run_id, 'RECOVERED')
         finish_agent_run(connection, run_id, 'SUCCESS', None, None, None)
 
 
@@ -118,6 +120,7 @@ def finish_execution_as_failed(
             error_message,
             retryable,
         )
+        finish_run_recoveries(connection, run_id, 'FAILED')
         finish_agent_run(
             connection,
             run_id,
@@ -143,5 +146,6 @@ def finish_execution_with_itinerary(
             source_snapshot,
             validation_status='POSSIBLE',
         )
+        finish_run_recoveries(connection, execution['run_id'], 'RECOVERED')
         finish_agent_run(connection, execution['run_id'], 'SUCCESS', None, None, None)
     return version_id

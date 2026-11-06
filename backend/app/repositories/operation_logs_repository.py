@@ -55,6 +55,44 @@ def create_agent_run(connection: Connection, run_id: UUID | None = None) -> UUID
     return row[0]
 
 
+def create_run_component_logs(connection: Connection, run_id: UUID) -> None:
+    initial_statuses = (
+        ('POSTGRESQL', 'UP', 'RUN_RECORD_CREATED'),
+        ('OPERATIONAL_LOG_SCHEMA', 'UP', 'LOG_SCHEMA_WRITE_SUCCEEDED'),
+        ('LANGGRAPH', 'NOT_RUN', 'WAITING_FOR_WORKER'),
+        ('LLM_API', 'NOT_RUN', 'WAITING_FOR_GRAPH'),
+        ('SEOUL_CULTURAL_EVENTS', 'NOT_RUN', 'WAITING_FOR_WORKER'),
+    )
+    for component_name, status, reason_code in initial_statuses:
+        connection.execute(
+            """INSERT INTO run_component_logs (
+                       run_id, component_name, status, reason_code
+                   ) VALUES (%s, %s, %s, %s)""",
+            (run_id, component_name, status, reason_code),
+        )
+
+
+def update_run_component_log(
+    connection: Connection,
+    run_id: UUID,
+    component_name: str,
+    status: str,
+    reason_code: str,
+    latency_ms: int | None = None,
+    started_at: Any | None = None,
+) -> None:
+    connection.execute(
+        """UPDATE run_component_logs
+              SET status = %s,
+                  reason_code = %s,
+                  latency_ms = %s,
+                  started_at = coalesce(%s, started_at),
+                  checked_at = now()
+            WHERE run_id = %s AND component_name = %s""",
+        (status, reason_code, latency_ms, started_at, run_id, component_name),
+    )
+
+
 def finish_agent_run(
     connection: Connection,
     run_id: UUID,

@@ -6,7 +6,8 @@ from typing import Any, Callable, Literal
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel
+from langchain_core.exceptions import OutputParserException
+from pydantic import BaseModel, ValidationError
 from psycopg import Connection, Error as PsycopgError
 
 from app.agents.llm_client import AgentModelBundle
@@ -28,8 +29,11 @@ MAX_AGENT_REVISIONS = 1
 MAX_RECOMMENDATIONS = 1
 MAX_LLM_CALLS = 8
 MAX_ADDITIONAL_LLM_RETRIES = 2
+# Internal schema repair is independent from a visitor's itinerary regeneration count.
+MAX_FORMAT_OUTPUT_RETRIES = 1
 MAX_RUN_DURATION_SECONDS = 90
-RETRY_DELAY_SECONDS = 0.1
+LLM_RETRY_BASE_DELAY_SECONDS = 0.5
+LLM_RETRY_MAX_DELAY_SECONDS = 4
 
 COMPANION_GUIDANCE: dict[str, str] = {
     'family': (
@@ -128,12 +132,13 @@ def validate_agent_inputs(
 
 
 def build_itinerary_graph(
-    agent_models: AgentModelBundle,
+    agent_models: AgentModelBundle | None,
     connection: Connection | None = None,
     run_id: UUID | None = None,
     run_started_at: float | None = None,
+    step_order_start: int = 0,
 ):
-    step_order = 0
+    step_order = step_order_start
     llm_call_count = 0
 
     def start_handoff_log(from_agent: str, to_agent: str) -> UUID | None:
@@ -159,6 +164,8 @@ def build_itinerary_graph(
     ):
         def agent_node(state: ItineraryAgentState) -> dict[str, Any]:
             nonlocal step_order, llm_call_count
+            if agent_models is None:
+                raise RuntimeError('Agent models are required to execute graph nodes.')
             step_order += 1
             handoff_id = None
             if previous_agent is not None:
@@ -187,18 +194,35 @@ def build_itinerary_graph(
                 api_call_id: UUID | None = None
                 active_recovery_id: UUID | None = None
                 result: BaseModel | None = None
+                last_error_code = 'LLM_AGENT_CALL_FAILED'
+                transient_retry_count = 0
+                format_retry_count = 0
+                recovery_attempt_count = 0
+                active_messages = messages
 
-                for attempt_number in range(MAX_ADDITIONAL_LLM_RETRIES + 1):
+                max_call_attempts = (
+                    MAX_ADDITIONAL_LLM_RETRIES
+                    + MAX_FORMAT_OUTPUT_RETRIES
+                    + 1
+                )
+                for _call_attempt in range(max_call_attempts):
                     check_execution_budget()
                     llm_call_count += 1
                     started_at = perf_counter()
                     try:
                         result = agent_models.chat_model.with_structured_output(
                             output_schema
-                        ).invoke(messages)
+                        ).invoke(active_messages)
                         if not isinstance(result, output_schema):
                             result = output_schema.model_validate(result)
                     except Exception as error:
+                        is_format_error = is_structured_output_error(error)
+                        error_code = (
+                            'LLM_OUTPUT_INVALID'
+                            if is_format_error
+                            else 'LLM_AGENT_CALL_FAILED'
+                        )
+                        last_error_code = error_code
                         api_call_id = (
                             record_api_call(
                                 connection,
@@ -209,7 +233,7 @@ def build_itinerary_graph(
                                 latency_ms=max(0, round((perf_counter() - started_at) * 1000)),
                                 success=False,
                                 error_source='LLM',
-                                error_code='LLM_AGENT_CALL_FAILED',
+                                error_code=error_code,
                             )
                             if connection is not None and run_id is not None
                             else None
@@ -218,20 +242,36 @@ def build_itinerary_graph(
                             incident_id = create_incident(
                                 connection,
                                 run_id,
-                                severity='MEDIUM' if is_retryable_llm_error(error) else 'HIGH',
+                                severity=(
+                                    'MEDIUM'
+                                    if is_format_error or is_retryable_llm_error(error)
+                                    else 'HIGH'
+                                ),
                                 error_source='LLM',
-                                error_code='LLM_AGENT_CALL_FAILED',
+                                error_code=error_code,
                                 error_message=(
-                                    'A transient LLM call failed; a bounded retry was attempted.'
-                                    if is_retryable_llm_error(error)
-                                    else 'An LLM agent call failed; raw exception details were omitted.'
+                                    'The structured LLM response did not match its schema; a bounded format repair was attempted.'
+                                    if is_format_error
+                                    else (
+                                        'A transient LLM call failed; a bounded retry was attempted.'
+                                        if is_retryable_llm_error(error)
+                                        else 'An LLM agent call failed; raw exception details were omitted.'
+                                    )
                                 ),
                                 failed_step_name=agent_name,
                                 api_call_id=api_call_id,
                             )
+                        should_retry_format = (
+                            is_format_error
+                            and format_retry_count < MAX_FORMAT_OUTPUT_RETRIES
+                        )
+                        should_retry_transient = (
+                            not is_format_error
+                            and is_retryable_llm_error(error)
+                            and transient_retry_count < MAX_ADDITIONAL_LLM_RETRIES
+                        )
                         should_retry = (
-                            is_retryable_llm_error(error)
-                            and attempt_number < MAX_ADDITIONAL_LLM_RETRIES
+                            (should_retry_format or should_retry_transient)
                             and llm_call_count < MAX_LLM_CALLS
                             and run_budget_remaining(run_started_at)
                         )
@@ -240,14 +280,31 @@ def build_itinerary_graph(
                             active_recovery_id = None
                         if should_retry:
                             if connection is not None and incident_id is not None and run_id is not None:
+                                recovery_attempt_count += 1
                                 active_recovery_id = start_recovery(
                                     connection,
                                     incident_id,
                                     run_id,
-                                    attempt_number + 1,
-                                    'retry_transient_llm_call',
+                                    recovery_attempt_count,
+                                    (
+                                        'repair_llm_structured_output'
+                                        if is_format_error
+                                        else 'retry_transient_llm_call'
+                                    ),
                                 )
-                            time.sleep(RETRY_DELAY_SECONDS)
+                            if is_format_error:
+                                format_retry_count += 1
+                                active_messages = build_format_retry_messages(
+                                    messages,
+                                    error,
+                                )
+                            else:
+                                retry_delay_seconds = min(
+                                    LLM_RETRY_BASE_DELAY_SECONDS * (2 ** transient_retry_count),
+                                    LLM_RETRY_MAX_DELAY_SECONDS,
+                                )
+                                transient_retry_count += 1
+                                time.sleep(retry_delay_seconds)
                             continue
                         if connection is not None and step_log_id is not None:
                             finish_agent_step(
@@ -255,13 +312,13 @@ def build_itinerary_graph(
                                 step_log_id,
                                 'FAILED',
                                 error_source='LLM',
-                                error_code='LLM_AGENT_CALL_FAILED',
+                                error_code=error_code,
                             )
                         raise AgentNodeFailure(
                             agent_name,
                             api_call_id,
                             incident_id,
-                            'LLM_AGENT_CALL_FAILED',
+                            error_code,
                         ) from error
 
                     if connection is not None and run_id is not None:
@@ -285,21 +342,21 @@ def build_itinerary_graph(
                         agent_name,
                         api_call_id,
                         incident_id,
-                        'LLM_AGENT_CALL_FAILED',
+                        last_error_code,
                     )
                 if connection is not None and step_log_id is not None:
                     finish_agent_step(connection, step_log_id, 'SUCCESS')
                 if connection is not None and handoff_id is not None:
                     finish_handoff(connection, handoff_id, 'SUCCESS')
                 return {output_key: result.model_dump(mode='json')}
-            except AgentNodeFailure:
+            except AgentNodeFailure as error:
                 if connection is not None and handoff_id is not None:
                     finish_handoff(
                         connection,
                         handoff_id,
                         'FAILED',
                         error_source='LLM',
-                        error_code='LLM_AGENT_CALL_FAILED',
+                        error_code=error.error_code,
                     )
                 raise
             except ExecutionBudgetExceeded as error:
@@ -904,6 +961,62 @@ def is_retryable_llm_error(error: Exception) -> bool:
         'TimeoutError',
         'ConnectionError',
     }
+
+
+def is_structured_output_error(error: Exception) -> bool:
+    """Return true only for parse or schema validation failures from structured output."""
+    return isinstance(error, (ValidationError, OutputParserException))
+
+
+def build_format_retry_messages(
+    original_messages: list[tuple[str, str]],
+    error: Exception,
+) -> list[tuple[str, str]]:
+    """Ask once for schema-correct output without exposing raw error values in logs."""
+    if isinstance(error, ValidationError):
+        validation_issues = [
+            {
+                'field': '.'.join(str(part) for part in detail.get('loc', ())) or 'response',
+                'issue': str(detail.get('msg', 'The value does not match the schema'))[:200],
+            }
+            for detail in error.errors(include_input=False, include_context=False)[:10]
+        ]
+    else:
+        validation_issues = [
+            {
+                'field': 'response',
+                'issue': 'The response could not be parsed into the required structure.',
+            }
+        ]
+
+    correction_request = {
+        'instruction': (
+            'The previous structured response did not match the required schema. '
+            'Return a corrected response that satisfies the schema. Use only facts '
+            'from the original request and supplied candidates. Do not invent or infer '
+            'events, places, dates, times, coordinates, or source details.'
+        ),
+        'validation_issues': validation_issues,
+    }
+    retry_messages = list(original_messages)
+    last_role, last_content = retry_messages[-1]
+    try:
+        original_payload = json.loads(last_content)
+    except (TypeError, ValueError):
+        original_payload = None
+
+    if isinstance(original_payload, dict):
+        original_payload['format_correction'] = correction_request
+        retry_messages[-1] = (
+            last_role,
+            json.dumps(original_payload, ensure_ascii=False, default=str),
+        )
+        return retry_messages
+
+    retry_messages.append(
+        ('human', json.dumps(correction_request, ensure_ascii=False))
+    )
+    return retry_messages
 
 
 def run_budget_remaining(run_started_at: float | None) -> bool:

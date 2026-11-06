@@ -1,12 +1,19 @@
 import logging
+import json
 import os
 import re
 import socket
 import time
-from datetime import date, datetime, time as local_time
+from datetime import date, datetime, time as local_time, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Event, Thread
 from typing import Any
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from psycopg import Connection
+
+from app.agents.itinerary_graph import build_itinerary_graph
 from app.agents.llm_client import create_openai_agent_models
 from app.core.database import create_database_connection
 from app.integrations.seoul_culture_api import fetch_event_page
@@ -14,6 +21,21 @@ from app.repositories.itinerary_repository import claim_next_execution
 from app.repositories.critic_review_repository import save_critic_reviews
 from app.repositories.place_repository import list_active_recommendation_places
 from app.repositories.timetable_repository import get_timetable_snapshot
+from app.repositories.operation_logs_repository import update_run_component_log
+from app.repositories.itinerary_repository import renew_execution_lease
+from app.recovery.controller import (
+    close_abandoned_step_logs,
+    finish_run_recoveries,
+    record_terminal_run_failure,
+    resume_agent_run,
+    schedule_execution_retry,
+    start_run_recovery,
+)
+from app.recovery.policies import (
+    MAX_WORKER_ATTEMPTS,
+    classify_worker_error,
+    retry_delay_seconds,
+)
 from app.schemas.itinerary import (
     ItineraryItemResponse,
     ItineraryResponse,
@@ -27,6 +49,7 @@ from app.services.itinerary_request_service import (
     finish_execution_as_no_result,
     finish_execution_with_itinerary,
 )
+from app.services.operation_logs_service import record_api_call
 from app.services.timetable_service import get_departure_estimate
 
 
@@ -36,13 +59,166 @@ LOGGER = logging.getLogger("itinerary_worker")
 SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
 API_PAGE_SIZE = 1000
 MAX_RECOMMENDATION_CANDIDATES = 20
+LANGGRAPH_HEALTH_PORT = int(os.environ.get('LANGGRAPH_HEALTH_PORT', '8090'))
+WORKER_LEASE_SECONDS = 90
+WORKER_LEASE_HEARTBEAT_SECONDS = 20
+REQUIRED_LANGGRAPH_NODES = {
+    'trip_mobility_agent',
+    'event_explanation_agent',
+    'schedule_critic_agent',
+    'result_validator',
+}
+
+
+def compile_langgraph_for_readiness() -> None:
+    """Compile the graph topology without invoking any node or external API."""
+    compiled_graph = build_itinerary_graph(agent_models=None)
+    graph_nodes = set(compiled_graph.get_graph().nodes)
+    if not REQUIRED_LANGGRAPH_NODES.issubset(graph_nodes):
+        raise RuntimeError('The compiled LangGraph is missing required nodes.')
+
+
+def start_langgraph_health_server() -> ThreadingHTTPServer:
+    """Expose an internal liveness/readiness signal for the admin dashboard."""
+    class LangGraphHealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path != '/health':
+                self.send_error(404)
+                return
+            response_body = json.dumps(
+                {'status': 'ready', 'checks': {'langgraph': 'ok'}},
+            ).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(response_body)))
+            self.end_headers()
+            self.wfile.write(response_body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    health_server = ThreadingHTTPServer(
+        ('0.0.0.0', LANGGRAPH_HEALTH_PORT),
+        LangGraphHealthHandler,
+    )
+    health_server.daemon_threads = True
+    Thread(
+        target=health_server.serve_forever,
+        name='langgraph-health-server',
+        daemon=True,
+    ).start()
+    return health_server
+
+
+class ExecutionLeaseHeartbeat:
+    """Renew a live worker lease while bounded external calls are in progress."""
+
+    def __init__(self, run_id: UUID) -> None:
+        self.run_id = run_id
+        self.stopped = Event()
+        self.thread = Thread(
+            target=self._renew_until_stopped,
+            name=f'lease-heartbeat-{run_id}',
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stopped.set()
+        self.thread.join(timeout=2)
+
+    def _renew_until_stopped(self) -> None:
+        while not self.stopped.wait(WORKER_LEASE_HEARTBEAT_SECONDS):
+            try:
+                with create_database_connection() as connection:
+                    renewed = renew_execution_lease(
+                        connection,
+                        self.run_id,
+                        WORKER_ID,
+                        WORKER_LEASE_SECONDS,
+                    )
+                if not renewed:
+                    LOGGER.warning('Worker lease is no longer owned for run %s.', self.run_id)
+                    return
+            except Exception:
+                LOGGER.warning('Worker lease renewal failed for run %s.', self.run_id)
 
 
 def process_next_execution() -> bool:
     with create_database_connection() as connection:
-        execution = claim_next_execution(connection, WORKER_ID)
+        execution = claim_next_execution(
+            connection,
+            WORKER_ID,
+            lease_seconds=WORKER_LEASE_SECONDS,
+        )
     if execution is None:
         return False
+
+    with create_database_connection() as connection:
+        update_run_component_log(
+            connection,
+            execution['run_id'],
+            'POSTGRESQL',
+            'UP',
+            'DATABASE_CONNECTION_CONFIRMED',
+        )
+        update_run_component_log(
+            connection,
+            execution['run_id'],
+            'OPERATIONAL_LOG_SCHEMA',
+            'UP',
+            'OPERATIONAL_LOG_SCHEMA_CONFIRMED',
+        )
+
+    if execution['worker_attempt_count'] > MAX_WORKER_ATTEMPTS:
+        with create_database_connection() as connection:
+            error_code = 'WORKER_RETRY_LIMIT_EXCEEDED'
+            record_terminal_run_failure(
+                connection,
+                execution['run_id'],
+                'UNKNOWN',
+                error_code,
+                'The worker exceeded its bounded execution attempts.',
+                'recommendation_worker',
+                severity='CRITICAL',
+            )
+            finish_execution_as_failed(
+                connection,
+                execution['run_id'],
+                error_code,
+                '추천 작업을 복구하지 못했습니다. 잠시 후 다시 요청해 주세요.',
+                retryable=False,
+            )
+        LOGGER.error('Worker retry limit reached for run %s.', execution['run_id'])
+        return True
+
+    if execution['worker_attempt_count'] > 1:
+        with create_database_connection() as connection:
+            close_abandoned_step_logs(connection, execution['run_id'])
+            resume_agent_run(connection, execution['run_id'])
+    if execution['lease_expired']:
+        with create_database_connection() as connection:
+            start_run_recovery(
+                connection,
+                execution['run_id'],
+                'UNKNOWN',
+                'WORKER_LEASE_EXPIRED',
+                'The worker stopped before completing its leased execution.',
+                'recommendation_worker',
+                'reclaim_expired_worker_lease',
+            )
+
+    heartbeat = ExecutionLeaseHeartbeat(execution['run_id'])
+    heartbeat.start()
+    try:
+        return _process_claimed_execution(execution)
+    finally:
+        heartbeat.stop()
+
+
+def _process_claimed_execution(execution: dict[str, Any]) -> bool:
 
     processing_stage = "timetable_lookup"
     try:
@@ -53,7 +229,12 @@ def process_next_execution() -> bool:
             execution["preferred_departure_time"],
         )
         processing_stage = "culture_api_lookup"
-        events = fetch_events_for_date(execution["service_date"])
+        with create_database_connection() as connection:
+            events = fetch_events_for_date(
+                execution["service_date"],
+                connection=connection,
+                run_id=execution["run_id"],
+            )
         events, filter_metadata = filter_event_rows_for_destination(
             events,
             execution["destination_stop_id"],
@@ -91,7 +272,16 @@ def process_next_execution() -> bool:
         processing_stage = "llm_configuration"
         models = create_openai_agent_models()
         processing_stage = "langgraph_execution"
+        graph_started = time.perf_counter()
         with create_database_connection() as connection:
+            update_run_component_log(
+                connection,
+                execution["run_id"],
+                'LANGGRAPH',
+                'RUNNING',
+                'GRAPH_EXECUTION_STARTED',
+                started_at=datetime.now(timezone.utc),
+            )
             agent_result = run_itinerary_agent_flow(
                 connection,
                 models,
@@ -99,6 +289,16 @@ def process_next_execution() -> bool:
                 candidates,
                 run_id=execution["run_id"],
             )
+            processing_stage = 'critic_review_persistence'
+            update_run_component_log(
+                connection,
+                execution["run_id"],
+                'LANGGRAPH',
+                'UP',
+                'GRAPH_EXECUTION_COMPLETED',
+                latency_ms=round((time.perf_counter() - graph_started) * 1000),
+            )
+            update_api_component_status(connection, execution["run_id"], 'LLM')
             save_critic_reviews(
                 connection,
                 execution["run_id"],
@@ -134,45 +334,215 @@ def process_next_execution() -> bool:
         with create_database_connection() as connection:
             finish_execution_with_itinerary(connection, execution, itinerary, snapshot)
     except Exception as error:
-        error_code = getattr(error, "error_code", None) or "ITINERARY_GENERATION_FAILED"
+        decision = classify_worker_error(error, processing_stage)
         safe_message = (
-            "행사 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
-            if error_code.startswith("culture_api")
+            "행사 정보를 일시적으로 불러오지 못했습니다. 잠시 후 다시 시도합니다."
+            if decision.error_source == 'EXTERNAL_API'
             else "코스를 생성하지 못했습니다. 조건을 확인하고 다시 시도해 주세요."
         )
         with create_database_connection() as connection:
+            if processing_stage == 'langgraph_execution':
+                update_run_component_log(
+                    connection,
+                    execution["run_id"],
+                    'LANGGRAPH',
+                    'DOWN',
+                    'GRAPH_EXECUTION_FAILED',
+                )
+                update_api_component_status(connection, execution["run_id"], 'LLM')
+            if (
+                decision.retryable
+                and execution['worker_attempt_count'] < MAX_WORKER_ATTEMPTS
+            ):
+                close_abandoned_step_logs(connection, execution['run_id'])
+                resume_agent_run(connection, execution['run_id'])
+                start_run_recovery(
+                    connection,
+                    execution['run_id'],
+                    decision.error_source,
+                    decision.error_code,
+                    decision.safe_message,
+                    processing_stage,
+                    decision.recovery_action,
+                )
+                delay_seconds = retry_delay_seconds(execution['worker_attempt_count'])
+                queued = schedule_execution_retry(
+                    connection,
+                    execution['run_id'],
+                    WORKER_ID,
+                    delay_seconds,
+                )
+                if queued:
+                    LOGGER.warning(
+                        'Scheduled worker retry %s/%s for run %s after %ss (%s).',
+                        execution['worker_attempt_count'] + 1,
+                        MAX_WORKER_ATTEMPTS,
+                        execution['run_id'],
+                        delay_seconds,
+                        decision.error_code,
+                    )
+                    return True
+                finish_run_recoveries(connection, execution['run_id'], 'FAILED')
+            record_terminal_run_failure(
+                connection,
+                execution['run_id'],
+                decision.error_source,
+                decision.error_code,
+                decision.safe_message,
+                processing_stage,
+            )
             finish_execution_as_failed(
                 connection,
                 execution["run_id"],
-                error_code.upper(),
-                safe_message,
-                retryable=error_code.startswith("culture_api") or error_code == "ITINERARY_GENERATION_FAILED",
+                decision.error_code,
+                "행사 API 오류가 반복되거나 복구할 수 없어 코스를 생성하지 못했습니다."
+                if decision.error_source == 'EXTERNAL_API'
+                else "코스를 생성하지 못했습니다. 조건을 확인하고 다시 시도해 주세요.",
+                retryable=decision.retryable,
             )
         LOGGER.warning(
             "Itinerary run %s failed with %s (%s).",
             execution["run_id"],
-            error_code,
+            decision.error_code,
             f"{processing_stage}:{type(error).__name__}",
         )
     return True
 
 
-def fetch_events_for_date(service_date: date) -> list[dict[str, Any]]:
+def update_api_component_status(
+    connection: Connection,
+    run_id: UUID,
+    api_type: str,
+) -> None:
+    component_name = 'LLM_API' if api_type == 'LLM' else 'SEOUL_CULTURAL_EVENTS'
+    summary = connection.execute(
+        """SELECT count(*)::integer AS total,
+                  count(*) FILTER (WHERE success)::integer AS successful,
+                  coalesce(sum(latency_ms), 0)::integer AS latency_ms,
+                  min(called_at) AS started_at
+             FROM api_call_logs
+            WHERE run_id = %s AND api_type = %s""",
+        (run_id, api_type),
+    ).fetchone()
+    total = int(summary[0])
+    successful = int(summary[1])
+    if total == 0:
+        status = 'NOT_RUN'
+        reason_code = 'NO_API_CALL_RECORDED'
+    elif successful == total:
+        status = 'UP'
+        reason_code = 'ALL_API_CALLS_SUCCEEDED'
+    elif successful == 0:
+        status = 'DOWN'
+        reason_code = 'ALL_API_CALLS_FAILED'
+    else:
+        status = 'DEGRADED'
+        reason_code = 'SOME_API_CALLS_FAILED'
+    update_run_component_log(
+        connection,
+        run_id,
+        component_name,
+        status,
+        reason_code,
+        latency_ms=int(summary[2]) if total else None,
+        started_at=summary[3],
+    )
+
+
+def fetch_events_for_date(
+    service_date: date,
+    connection: Connection | None = None,
+    run_id: UUID | None = None,
+) -> list[dict[str, Any]]:
+    component_started = time.perf_counter()
+    component_started_at = datetime.now(timezone.utc)
+    if connection is not None and run_id is not None:
+        update_run_component_log(
+            connection,
+            run_id,
+            'SEOUL_CULTURAL_EVENTS',
+            'RUNNING',
+            'API_REQUEST_STARTED',
+            started_at=component_started_at,
+        )
     api_key = os.environ.get("SEOUL_CULTURE_API_KEY", "").strip()
     if not api_key:
+        if connection is not None and run_id is not None:
+            update_run_component_log(
+                connection,
+                run_id,
+                'SEOUL_CULTURAL_EVENTS',
+                'DOWN',
+                'API_NOT_CONFIGURED',
+                latency_ms=round((time.perf_counter() - component_started) * 1000),
+            )
         raise RuntimeError("culture_api_not_configured")
-    total_count, rows = fetch_event_page(api_key, 1, API_PAGE_SIZE)
-    collected_rows = list(rows)
-    while len(collected_rows) < total_count:
-        start_index = len(collected_rows) + 1
-        _, page_rows = fetch_event_page(
-            api_key,
-            start_index,
-            min(start_index + API_PAGE_SIZE - 1, total_count),
+
+    def fetch_page(start_index: int, end_index: int) -> tuple[int, tuple[dict[str, object], ...]]:
+        request_started = time.perf_counter()
+        try:
+            page_result = fetch_event_page(api_key, start_index, end_index)
+        except Exception as error:
+            if connection is not None and run_id is not None:
+                record_api_call(
+                    connection,
+                    run_id,
+                    provider='seoul_openapi',
+                    api_type='CULTURE',
+                    http_status=getattr(error, 'http_status', None),
+                    latency_ms=max(0, round((time.perf_counter() - request_started) * 1000)),
+                    success=False,
+                    error_source='EXTERNAL_API',
+                    error_code=getattr(error, 'error_code', 'CULTURE_API_REQUEST_FAILED'),
+                )
+            raise
+        if connection is not None and run_id is not None:
+            record_api_call(
+                connection,
+                run_id,
+                provider='seoul_openapi',
+                api_type='CULTURE',
+                http_status=200,
+                latency_ms=max(0, round((time.perf_counter() - request_started) * 1000)),
+                success=True,
+            )
+        return page_result
+
+    try:
+        total_count, rows = fetch_page(1, API_PAGE_SIZE)
+        collected_rows = list(rows)
+        while len(collected_rows) < total_count:
+            start_index = len(collected_rows) + 1
+            _, page_rows = fetch_page(
+                start_index,
+                min(start_index + API_PAGE_SIZE - 1, total_count),
+            )
+            if not page_rows:
+                raise RuntimeError("culture_api_incomplete_response")
+            collected_rows.extend(page_rows)
+    except Exception as error:
+        if connection is not None and run_id is not None:
+            update_run_component_log(
+                connection,
+                run_id,
+                'SEOUL_CULTURAL_EVENTS',
+                'DOWN',
+                getattr(error, 'error_code', 'API_REQUEST_FAILED').upper(),
+                latency_ms=round((time.perf_counter() - component_started) * 1000),
+            )
+            update_api_component_status(connection, run_id, 'CULTURE')
+        raise
+
+    if connection is not None and run_id is not None:
+        update_run_component_log(
+            connection,
+            run_id,
+            'SEOUL_CULTURAL_EVENTS',
+            'UP',
+            'API_RESPONSE_RECEIVED',
+            latency_ms=round((time.perf_counter() - component_started) * 1000),
         )
-        if not page_rows:
-            raise RuntimeError("culture_api_incomplete_response")
-        collected_rows.extend(page_rows)
+        update_api_component_status(connection, run_id, 'CULTURE')
     return [row for row in collected_rows if event_matches_date(row, service_date)]
 
 
@@ -655,6 +1025,12 @@ def build_itinerary(
 
 def run_worker() -> None:
     logging.basicConfig(level=logging.INFO)
+    try:
+        compile_langgraph_for_readiness()
+        start_langgraph_health_server()
+    except Exception:
+        LOGGER.error('LangGraph worker readiness initialization failed.')
+        raise
     LOGGER.info("Itinerary worker started.")
     while True:
         try:

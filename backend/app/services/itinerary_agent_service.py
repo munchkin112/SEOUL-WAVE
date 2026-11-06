@@ -45,11 +45,17 @@ def run_itinerary_agent_flow(
     critic_reviews: list[dict[str, Any]] = []
 
     try:
+        last_step_row = connection.execute(
+            "SELECT COALESCE(MAX(step_order), 0) FROM agent_step_logs WHERE run_id = %s",
+            (run_id,),
+        ).fetchone()
+        step_order_start = int(last_step_row[0]) if last_step_row is not None else 0
         graph = build_itinerary_graph(
             agent_models,
             connection,
             run_id,
             run_started_at=run_started_at,
+            step_order_start=step_order_start,
         )
         for update in graph.stream(initial_state, stream_mode='updates'):
             for node_name, node_update in update.items():

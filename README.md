@@ -42,6 +42,10 @@ docker compose up --build
 
 사용자 백엔드는 `backend/app/services/operation_logs_service.py`와 `backend/app/repositories/operation_logs_repository.py`를 통해 LangGraph 실행 로그를 공통 PostgreSQL의 기존 운영 로그 테이블에 기록합니다. 운영자 대시보드 조회 API는 별도 프로젝트에서 실행하며 이 FastAPI 서버에는 등록하지 않습니다. 로그에는 원시 예외·요청·프롬프트·비밀값을 기록하지 않습니다.
 
+추천 워커는 일시적인 서울시 문화행사 API·DB 오류를 최대 3회 실행 시도 안에서 지수형 대기 후 같은 `run_id`로 재등록합니다. LLM 호출은 노드 안에서 최대 2회 추가 재시도합니다. 워커 프로세스는 Docker 재시작 정책과 90초 작업 임대로 복구하며, 활성 실행 중에는 20초마다 임대를 갱신합니다. PostgreSQL 감시 컨테이너는 10초 간격으로 연결을 확인하고, DB가 복구되면 장애·복구 이력을 기존 `incident_logs`와 `recovery_logs`에 반영합니다. DB가 내려간 동안에는 감시 컨테이너의 별도 영속 볼륨에 전환 이벤트를 보관합니다.
+
+기존 데이터베이스에는 `backend/migrations/008_auto_recovery.sql`을 적용해야 합니다. 이 마이그레이션은 003 운영 로그 마이그레이션을 수정하지 않고 재시도 시각과 인프라 장애용 nullable `run_id`를 추가합니다. 대시보드는 기존 장애·복구 화면에 해당 행을 표시합니다.
+
 ### LangGraph 흐름 로컬 데모
 
 세 역할(이동 근거 검토 → 행사 설명 → 일정 Critic)과 한 번의 수정 요청을 LangGraph로 실행하는 개발 데모가 있습니다. 현재 지원구간과 검수 전시가 준비되지 않아 데모 입력은 합성 데이터이며 실제 추천이 아닙니다. mock 모드는 외부 LLM을 호출하지 않습니다.
