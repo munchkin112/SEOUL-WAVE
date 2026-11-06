@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.prod.example
 # Do not commit local source datasets.
 **/data/raw/
 *.pem

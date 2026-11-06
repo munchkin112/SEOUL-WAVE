@@ -5,6 +5,7 @@
 ## 기준 문서
 
 - [PRD v1.0](docs/PRD.md): 제품 범위와 수용 기준
+- [EC2 운영 배포 준비 및 절차](docs/operations/ec2-deployment.md): 개발 Compose와 분리된 ECR·EC2 운영 절차
 
 ## 폴더 구조
 
@@ -86,4 +87,4 @@ docker compose run --rm --no-deps backend python scripts/run_agent_flow_demo.py 
 
 ## 함께 작업할 때
 
-각자 브랜치에서 작업하고 Pull Request(변경 사항 합치기 요청)를 통해 공유하세요. 비밀번호, API 키, `.env` 파일, EC2 접속용 `.pem` 파일은 저장소에 올리지 마세요. 이 프로젝트의 Docker 설정은 로컬 개발을 위한 것이며 EC2 배포 설정은 포함하지 않습니다.
+각자 브랜치에서 작업하고 Pull Request(변경 사항 합치기 요청)를 통해 공유하세요. 비밀번호, API 키, `.env` 파일, EC2 접속용 `.pem` 파일은 저장소에 올리지 마세요. `compose.yaml`은 로컬 개발용이며, EC2 운영 환경은 [별도 배포 절차](docs/operations/ec2-deployment.md)를 따릅니다.
