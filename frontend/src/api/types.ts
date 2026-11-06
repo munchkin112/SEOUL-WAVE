@@ -14,13 +14,18 @@ export interface Exhibition {
   category: string;
   place: string;
   reason: string;
-  travelMinutes: number;
-  visitMinutes: number;
-  totalMinutes: number;
+  travelMinutes: number | null;
+  visitMinutes: number | null;
+  totalMinutes: number | null;
   admission: string;
   fee: string;
-  collectedAt: string;
-  reviewedAt: string;
+  collectedAt: string | null;
+  reviewedAt: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  sourceUrl?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export type PreviewScenario =
@@ -38,6 +43,27 @@ export interface RecommendationRequest {
   activityType: ActivityType;
 }
 
+export interface BackendItineraryItem {
+  sequence_no: number;
+  item_type: "FERRY" | "EVENT" | "PLACE" | "WALK";
+  title: string;
+  start_at: string | null;
+  end_at: string | null;
+  reason: string;
+  sources: Array<{ type: string; title: string; url: string | null }>;
+  location: { latitude: number; longitude: number } | null;
+  place_name: string | null;
+  address: string | null;
+  departure_stop: { stop_id: string; name: string } | null;
+  arrival_stop: { stop_id: string; name: string } | null;
+}
+
+export interface BackendItinerary {
+  id: string;
+  title: string;
+  items: BackendItineraryItem[];
+}
+
 export type CompanionType = "family" | "couple" | "friends" | "solo";
 export type ActivityType =
   | "exhibition_performance"
@@ -46,10 +72,10 @@ export type ActivityType =
   | "food_cafe";
 
 export type RecommendationResult =
-  | { status: "success" | "limited"; events: Exhibition[] }
-  | { status: "empty" }
+  | { status: "success" | "limited"; events: Exhibition[]; itinerary?: BackendItinerary }
+  | { status: "empty"; code?: string; message?: string }
   | { status: "alternative"; sailing: Sailing; events: Exhibition[] }
-  | { status: "unavailable"; reason: "api" | "db" | "expired" };
+  | { status: "unavailable"; reason: "api" | "db" | "expired"; code?: string; message?: string };
 
 export interface RecommendationClient {
   recommend(
@@ -72,6 +98,8 @@ export interface TimetableMetadata {
   effective_until: string | null;
   operating_days_status: string;
   separate_operational_notices_reviewed: boolean;
+  operation_policy_confirmed: boolean;
+  weather_disruption_notice: string;
   service_date_status: string;
 }
 

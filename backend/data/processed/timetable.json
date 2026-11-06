@@ -17,9 +17,11 @@
     "effective_from": "2026-08-15",
     "effective_until": null,
     "effective_until_condition": "until_further_notice",
-    "operating_days": null,
-    "operating_days_status": "not_specified_in_source_image",
-    "separate_operational_notices_reviewed": false
+    "operating_days": "daily",
+    "operating_days_status": "daily_service_with_weather_exception",
+    "separate_operational_notices_reviewed": true,
+    "operation_policy_confirmed": true,
+    "weather_disruption_notice": "강풍·비바람 등 기상 상황에 따라 안전 운항을 위해 일시적으로 운항이 중단될 수 있습니다."
   },
   "representation": {
     "source_row_count": 12,

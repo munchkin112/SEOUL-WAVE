@@ -29,5 +29,7 @@ class TimetableSnapshot:
     effective_until: str | None
     operating_days_status: str
     separate_operational_notices_reviewed: bool
+    operation_policy_confirmed: bool
+    weather_disruption_notice: str
     stops: tuple[Stop, ...]
     trip_estimates: tuple[TripEstimate, ...]

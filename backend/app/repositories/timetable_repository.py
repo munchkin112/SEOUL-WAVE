@@ -61,6 +61,13 @@ def get_timetable_snapshot() -> TimetableSnapshot:
             separate_operational_notices_reviewed=validity[
                 'separate_operational_notices_reviewed'
             ],
+            operation_policy_confirmed=validity.get(
+                'operation_policy_confirmed', False
+            ),
+            weather_disruption_notice=validity.get(
+                'weather_disruption_notice',
+                '강풍·비바람 등 기상 상황에 따라 안전 운항을 위해 일시적으로 운항이 중단될 수 있습니다.',
+            ),
             stops=stops,
             trip_estimates=trip_estimates,
         )

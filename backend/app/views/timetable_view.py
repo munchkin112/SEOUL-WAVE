@@ -19,6 +19,8 @@ def build_timetable_metadata(snapshot: TimetableSnapshot) -> TimetableMetadata:
         separate_operational_notices_reviewed=(
             snapshot.separate_operational_notices_reviewed
         ),
+        operation_policy_confirmed=snapshot.operation_policy_confirmed,
+        weather_disruption_notice=snapshot.weather_disruption_notice,
         service_date_status='unknown',
     )
 
