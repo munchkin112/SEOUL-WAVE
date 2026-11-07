@@ -1,21 +1,7 @@
-name: Backend CI
+name: Legacy Backend CI (manual diagnostics)
 
 on:
-  push:
-    branches:
-      - dev
-      - main
-      - "ci/discord-alert-test"
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ci.yml"
-  pull_request:
-    branches:
-      - dev
-      - main
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
