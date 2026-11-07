@@ -27,11 +27,11 @@
    - 허용 시간은 배포 접수(admission) 기준이다. 18:00 전에 시작한 SSM 배포는 서비스가 일관된 상태가 되도록 검사·롤백까지 계속할 수 있다.
    - 요일 제한은 두지 않는다. 사용자가 시간대만 지정했고, 추가 휴일 달력은 요청하지 않았다.
 4. 배포별 전역 동시성 잠금은 cancel-in-progress=false로 두어 진행 중인 원격 변경을 취소하지 않는다. 서버에서도 파일 잠금으로 중복 실행을 막는다.
-5. SSM 전용 문서는 고정된 root 소유 배포 도구만 실행한다. 허용 파라미터는 source SHA, 원본 run ID, backend/frontend config ID와 고정 두 ECR 저장소의 digest 참조다. 임의 shell 명령·임의 URL·배포 경로를 파라미터로 받지 않는다.
+5. 이름이 `SeoulWave-Deploy-v1`인 SSM 전용 문서는 고정된 root 소유 배포 도구만 실행한다. 디스패처는 문서 버전 1을 지정한다. 허용 파라미터는 source SHA, 원본 run ID, backend/frontend config ID와 고정 두 ECR 저장소의 digest 참조다. 임의 shell 명령·임의 URL·배포 경로를 파라미터로 받지 않는다. 새 실행 콘텐츠는 새 문서 이름으로 만들어 IAM 경계를 유지한다.
 6. 서버의 기존 Compose/운영 설정을 사용해 backend, frontend, itinerary-worker, database-health-monitor만 갱신한다. db와 관리자 서비스는 갱신하지 않는다. DB가 준비되지 않았거나 새 migration이 필요하면 배포를 중단한다.
-7. 이미지 config ID와 digest 참조, Compose 준비 상태, 프록시 health, 비인증 API의 401을 확인한다. 기존 운영 로그인 정보가 서버에 있으면 외부 LLM 없이 로그인·시간표 조회도 확인한다. 명령/알림/Artifact에 비밀값을 출력하지 않는다.
+7. 이미지 config ID와 digest 참조, Compose 준비 상태, 프록시 health, 비인증 API의 401을 확인한다. 기존 운영 로그인 정보가 서버에 있으면 외부 LLM 없이 로그인·시간표 조회도 확인한다. 이 마지막 확인은 Secure 쿠키 특성을 유지하면서 고정 loopback 연결에서만 수행한다. 명령/알림/Artifact에 비밀값을 출력하지 않는다.
 8. 갱신 전 이미지 참조를 보존한다. 변경 후 검사 실패 시 이전 참조로 네 앱 서비스를 복구하고 복구 검사 결과를 남긴 뒤 CD를 실패 처리한다. DB 스키마는 건드리지 않아 이미지 롤백과 DB 되돌림을 혼동하지 않는다. 복구 실패도 성공으로 처리하지 않는다.
-9. 성공 시 현재 release.json과 직전 release.json을 원자적으로 기록한다. SSM 명령 결과를 기다려 원격 성공까지 확인하고 Discord에 실제 배포 성공/실패를 알린다.
+9. 성공 시 현재·이전 릴리스를 하나의 `release-state.json`으로 원자 기록한다. 미변경 거부·preflight 실패는 `not_applied`, 교체 실패 후 복구는 `rolled_back`, 복구도 실패하면 `rollback_failed`로 구분한다. SSM 명령 결과를 기다려 원격 성공까지 확인하고 Discord에 실제 배포 성공/실패를 알린다.
 
 ## 테스트 경계(사용자 승인)
 
