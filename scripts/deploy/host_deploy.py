@@ -446,7 +446,10 @@ class HostDeployer:
     def _temporary_docker_config(prefix):
         runtime_dir = Path('/run')
         if runtime_dir.is_dir():
-            return tempfile.TemporaryDirectory(prefix=prefix, dir=runtime_dir)
+            try:
+                return tempfile.TemporaryDirectory(prefix=prefix, dir=runtime_dir)
+            except PermissionError:
+                pass
         return tempfile.TemporaryDirectory(prefix=prefix)
 
     def _wait_for_health(self, env):

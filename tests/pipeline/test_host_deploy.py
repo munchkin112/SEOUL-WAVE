@@ -169,6 +169,30 @@ def _response(status, payload):
     return Response()
 
 
+class DockerConfigDirectoryTests(unittest.TestCase):
+    def test_runtime_directory_permission_error_falls_back_to_default_temp_dir(self):
+        runtime_dir = Path('/run')
+        original_is_dir = Path.is_dir
+        real_temporary_directory = host_deploy.tempfile.TemporaryDirectory
+        calls = []
+
+        def is_dir(path):
+            return True if path == runtime_dir else original_is_dir(path)
+
+        def temporary_directory(*, prefix, dir=None):
+            calls.append(dir)
+            if dir == runtime_dir:
+                raise PermissionError('injected unwritable runtime directory')
+            return real_temporary_directory(prefix=prefix, dir=dir)
+
+        with patch.object(host_deploy.Path, 'is_dir', new=is_dir):
+            with patch.object(host_deploy.tempfile, 'TemporaryDirectory',
+                              new=temporary_directory):
+                with host_deploy.HostDeployer._temporary_docker_config('seoul-wave-test-') as path:
+                    self.assertTrue(Path(path).is_dir())
+                    self.assertEqual(calls, [runtime_dir, None])
+
+
 class HostDeployTests(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(host_deploy, 'scripts/deploy/host_deploy.py must exist')
