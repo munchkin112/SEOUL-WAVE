@@ -52,6 +52,7 @@ COMMAND_ID_PATTERN = re.compile(
 ARTIFACT_DIGEST_PATTERN = re.compile(r'sha256:[0-9a-f]{64}')
 MAX_RELEASE_JSON_BYTES = 1024 * 1024
 MAX_POLL_SECONDS = 3900
+MAX_INVOCATION_NOT_READY_SECONDS = 120
 
 
 class DeploymentRejected(RuntimeError):
@@ -74,6 +75,10 @@ class DeploymentFailed(RuntimeError):
 
 class InvocationNotReady(RuntimeError):
     """SSM has accepted a command but has not materialized its invocation yet."""
+
+    def __init__(self, reason='invocation_missing'):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class GitHubApiClient:
@@ -169,9 +174,9 @@ class AwsSsmClient:
         except (OSError, subprocess.TimeoutExpired):
             raise RuntimeError('AWS SSM request could not be completed.') from None
         if result.returncode != 0:
-            not_ready_errors = ('InvocationDoesNotExist', 'InvalidPluginName')
-            if invocation_poll and any(
-                    error in (result.stderr or '') for error in not_ready_errors):
+            if invocation_poll and 'InvalidPluginName' in (result.stderr or ''):
+                raise InvocationNotReady('plugin_not_materialized')
+            if invocation_poll and 'InvocationDoesNotExist' in (result.stderr or ''):
                 raise InvocationNotReady()
             raise RuntimeError('AWS SSM request failed.')
         try:
@@ -210,7 +215,7 @@ class AwsSsmClient:
     def get_command_invocation(self, command_id, instance_id):
         try:
             return self._get_command_step(command_id, instance_id, 'runFixedDeployment')
-        except InvocationNotReady:
+        except InvocationNotReady as not_ready:
             for plugin_name in ('downloadExactCommitRunner', 'prepareFixedDirectory'):
                 try:
                     invocation = self._get_command_step(command_id, instance_id, plugin_name)
@@ -218,7 +223,7 @@ class AwsSsmClient:
                     continue
                 if invocation.get('Status') != 'Success':
                     return invocation
-            raise InvocationNotReady()
+            raise not_ready
 
     def _get_command_step(self, command_id, instance_id, plugin_name):
         return self._json([
@@ -433,10 +438,28 @@ class DeploymentDispatcher:
 
     def _poll(self, command_id, instance_id, prepared):
         deadline = self.monotonic() + self.max_poll_seconds
+        not_ready_since = None
+        not_ready_reason = None
         while True:
             try:
                 invocation = self.ssm.get_command_invocation(command_id, instance_id)
-            except InvocationNotReady:
+            except InvocationNotReady as not_ready:
+                if not_ready_since is None or not_ready_reason != not_ready.reason:
+                    not_ready_since = self.monotonic()
+                    not_ready_reason = not_ready.reason
+                if (self.monotonic() - not_ready_since
+                        >= MAX_INVOCATION_NOT_READY_SECONDS):
+                    is_plugin_missing = not_ready.reason == 'plugin_not_materialized'
+                    failure_code = (
+                        'ssm_plugin_not_materialized' if is_plugin_missing
+                        else 'ssm_poll_timeout'
+                    )
+                    evidence = self._evidence(
+                        prepared, deployment_status='failure', command_id=command_id,
+                        ssm_status='poll_error' if is_plugin_missing else 'poll_timeout',
+                    )
+                    evidence['failure_code'] = failure_code
+                    raise DeploymentFailed(failure_code, evidence) from None
                 invocation = {'Status': 'Pending'}
             except Exception:
                 evidence = self._evidence(
@@ -445,6 +468,9 @@ class DeploymentDispatcher:
                 )
                 evidence['failure_code'] = 'ssm_poll_failed'
                 raise DeploymentFailed('ssm_poll_failed', evidence) from None
+            else:
+                not_ready_since = None
+                not_ready_reason = None
             status = invocation.get('Status') if isinstance(invocation, dict) else None
             if status in TERMINAL_STATUSES:
                 return invocation

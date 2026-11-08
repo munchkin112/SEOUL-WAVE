@@ -37,6 +37,7 @@ SAFE_FAILURE_CODES = {
     'source_run_changed', 'release_artifact_changed', 'release_request_changed',
     'prepared_release_invalid', 'ssm_client_unavailable', 'ssm_dispatch_failed',
     'ssm_command_id_missing', 'ssm_poll_failed', 'ssm_poll_timeout',
+    'ssm_plugin_not_materialized',
     'ssm_status_unknown', 'ssm_command_failed', 'remote_deployment_not_applied',
 }
 SAFE_SSM_STATUSES = {
