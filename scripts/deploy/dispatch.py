@@ -439,14 +439,12 @@ class DeploymentDispatcher:
     def _poll(self, command_id, instance_id, prepared):
         deadline = self.monotonic() + self.max_poll_seconds
         not_ready_since = None
-        not_ready_reason = None
         while True:
             try:
                 invocation = self.ssm.get_command_invocation(command_id, instance_id)
             except InvocationNotReady as not_ready:
-                if not_ready_since is None or not_ready_reason != not_ready.reason:
+                if not_ready_since is None:
                     not_ready_since = self.monotonic()
-                    not_ready_reason = not_ready.reason
                 if (self.monotonic() - not_ready_since
                         >= MAX_INVOCATION_NOT_READY_SECONDS):
                     is_plugin_missing = not_ready.reason == 'plugin_not_materialized'
@@ -470,7 +468,6 @@ class DeploymentDispatcher:
                 raise DeploymentFailed('ssm_poll_failed', evidence) from None
             else:
                 not_ready_since = None
-                not_ready_reason = None
             status = invocation.get('Status') if isinstance(invocation, dict) else None
             if status in TERMINAL_STATUSES:
                 return invocation

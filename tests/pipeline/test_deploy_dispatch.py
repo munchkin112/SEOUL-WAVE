@@ -513,6 +513,45 @@ class DeploymentDispatchTests(unittest.TestCase):
         self.assertEqual(raised.exception.evidence['ssm_status'], 'poll_timeout')
         self.assertEqual(elapsed[0], 120)
 
+    def test_alternating_ssm_not_ready_errors_share_one_short_timeout(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        elapsed = [0.0]
+
+        class AlternatingNotReadySsm:
+            def __init__(self):
+                self.poll_count = 0
+
+            def send_command(self, **_kwargs):
+                return {'Command': {'CommandId': '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21'}}
+
+            def get_command_invocation(self, _command_id, _instance_id):
+                reason = (
+                    'invocation_missing' if self.poll_count % 2 == 0
+                    else 'plugin_not_materialized'
+                )
+                self.poll_count += 1
+                raise dispatch.InvocationNotReady(reason)
+
+        def sleep(seconds):
+            elapsed[0] += seconds
+
+        dispatcher = dispatch.DeploymentDispatcher(
+            github=FakeGitHub(),
+            ssm=AlternatingNotReadySsm(),
+            now=lambda: dispatch.datetime(2026, 11, 7, 9, 0, tzinfo=dispatch.KST),
+            sleep=sleep,
+            monotonic=lambda: elapsed[0],
+            poll_interval_seconds=10,
+            max_poll_seconds=3900,
+        )
+
+        with self.assertRaises(dispatch.DeploymentFailed) as raised:
+            dispatcher.dispatch({'workflow_run': {'id': int(RUN_ID)}})
+
+        self.assertEqual(raised.exception.code, 'ssm_poll_timeout')
+        self.assertEqual(raised.exception.evidence['ssm_status'], 'poll_timeout')
+        self.assertEqual(elapsed[0], 120)
+
     def test_ssm_poll_surfaces_a_failed_prerequisite_before_host_step_starts(self):
         self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
         calls = []
