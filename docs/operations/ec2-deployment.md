@@ -17,7 +17,7 @@
 - 호스트 Nginx :80 → 사용자 앱 loopback 127.0.0.1:8080, `/admin/` → 관리자 loopback 127.0.0.1:8081. 컨테이너 앱 포트는 loopback에만 공개된다.
 - PostgreSQL 18과 기존 앱/관리자 서비스는 이미 존재한다. `seoul-wave-prod-postgres-data`와 `seoul-wave-prod-monitor-state` named volume, 운영 `.env.prod`, 호스트 Nginx 설정을 보존한다.
 - 배포 대상 ECR은 backend `seoulwave` 및 frontend `seoul-wave-frontend`의 digest-pinned 참조다. CI가 검증한 이미지를 그대로 사용하며 배포 단계에서 rebuild하지 않는다. `latest`는 사용하지 않는다.
-- 공개 IPv4/DNS는 최신 read-only 확인이 없으므로 여기서 단정하지 않는다. 외부 HTTP 및 실제 브라우저 확인 전 해당 endpoint를 별도로 검증한다.
+- 2026-11-08 실제 배포 후 공개 `http://13.125.158.52/` 및 `/api/health`를 외부에서 확인했고 둘 다 HTTP 200이었다. DNS는 별도로 확인하지 않았다.
 
 ## 신규 호스트 Bootstrap only (자동 재배포에는 사용하지 않음)
 
@@ -69,6 +69,8 @@ dc run --rm --no-deps -v /home/ubuntu/seoul-wave-data:/source:ro backend python 
 
 PR #15가 squash merge되어 `dev`의 `2e0fad0931215787a4afd69faeee21c3618d31f2`에 반영되었다. CI run `42430497063`은 테스트·배포 gate·이미지 게시에 성공했고 검증 릴리스 Artifact를 만들었다. 첫 CD 시도는 GitHub OIDC subject 형식 불일치로 AWS 인증에서 멈춰 SSM 명령을 보내지 않았다. CloudTrail에서 확인한 불변 owner/repository ID를 포함한 정확한 `dev` subject로 IAM trust를 수정했다.
 
-재시도 CD run `42430732165`는 OIDC 인증 및 SSM 명령 `37587b0d-4449-4341-b283-4a286ad4d621`까지 성공했지만, 호스트는 `config_id_mismatch`를 감지해 자동 롤백했다. SSM 결과는 `rolled_back`이며 rollback 검증과 proxy health·protected API·login·timetable 검사가 모두 통과했다. 공개 `/` 및 `/api/health`도 롤백 후 각각 HTTP 200이었다. 따라서 이 기록은 성공 배포가 아니다. 같은 릴리스의 ECR manifest config digest와 SSM 파라미터가 검증 산출물과 일치하는 것을 확인했고, Docker image store별 Image ID 표기 차이 및 다단계 SSM의 명시적 step 조회를 보완하는 수정은 후속 PR에 포함할 예정이다.
+PR #15의 첫 실제 SSM 시도(`42430732165`, command `37587b0d-4449-4341-b283-4a286ad4d621`)는 호스트에서 `config_id_mismatch`를 감지해 자동 롤백했다. SSM 결과는 `rolled_back`이며 rollback 검증과 proxy health·protected API·login·timetable 검사가 모두 통과했다. 이 시도는 성공 배포가 아니었다.
 
-성공한 실제 배포와 실제 화면 브라우저 검증 전에는 성공 GIF를 만들거나 README에 성공으로 표시하지 않는다.
+PR #16은 `8ed75892336d2b30b408a4aeed82b4e96570536c`로 squash merge되었다. 검증 pipeline run `42433516487`은 백엔드·프론트엔드·통합 테스트, gate 및 이미지 게시에 성공했고, `verified-release` artifact를 배포 run `42433731035`가 사용했다. OIDC 인증과 고정 SSM 문서 전송도 성공했다. command `90f0ab47-8bcc-4f32-b774-46e6713b9a7e`의 최종 `runFixedDeployment` 상태는 `Success`, 응답 코드는 0, 원격 결과는 `outcome=applied`였다. 결과의 source SHA는 `8ed75892336d2b30b408a4aeed82b4e96570536c`, release run ID는 `42433516487`이며 backend/frontend config ID 확인, migration dry-run `none`, proxy health·protected API·login·timetable 점검이 모두 통과했다. 외부 공개 `/` 및 `/api/health`도 각각 HTTP 200(`health=ok`)이었다.
+
+단, GitHub CD run `42433731035` 자체는 `ssm_poll_failed`로 종료되었다. CloudTrail에서 확인한 첫 `GetCommandInvocation` 호출은 SSM이 아직 `runFixedDeployment` plugin을 등록하기 전이라 `InvalidPluginName`을 반환했다. 당시 poller가 이 일시적 응답을 재시도 가능한 상태로 분류하지 않아 workflow가 먼저 실패했지만, 이미 접수된 SSM 명령은 계속 실행되어 위와 같이 실제 배포와 원격 검증을 완료했다. 따라서 운영 배포는 성공했으나 그 CD run의 GitHub 상태는 실패로 남았다. follow-up 수정은 `InvalidPluginName`도 고정 문서의 초기 미등록 응답으로 재시도하도록 하고 회귀 테스트를 추가한다. 성공 화면 GIF는 workflow도 성공한 후 실제 브라우저 화면으로 검증해 README에 추가한다.

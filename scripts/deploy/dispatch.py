@@ -169,7 +169,9 @@ class AwsSsmClient:
         except (OSError, subprocess.TimeoutExpired):
             raise RuntimeError('AWS SSM request could not be completed.') from None
         if result.returncode != 0:
-            if invocation_poll and 'InvocationDoesNotExist' in (result.stderr or ''):
+            not_ready_errors = ('InvocationDoesNotExist', 'InvalidPluginName')
+            if invocation_poll and any(
+                    error in (result.stderr or '') for error in not_ready_errors):
                 raise InvocationNotReady()
             raise RuntimeError('AWS SSM request failed.')
         try:
