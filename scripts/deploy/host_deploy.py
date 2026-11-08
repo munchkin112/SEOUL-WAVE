@@ -230,16 +230,20 @@ def verify_http(base_url, site_access_passwords, *, opener_factory=build_opener)
     }
 
 
-def verify_config_ids(actual, request):
+def verify_image_identities(actual, request):
     expected = {
-        'backend': request['backend_config_id'],
-        'frontend': request['frontend_config_id'],
-        'itinerary-worker': request['backend_config_id'],
-        'database-health-monitor': request['backend_config_id'],
+        'backend': {request['backend_config_id'], request['backend_image'].rsplit('@', 1)[1]},
+        'frontend': {request['frontend_config_id'], request['frontend_image'].rsplit('@', 1)[1]},
+        'itinerary-worker': {
+            request['backend_config_id'], request['backend_image'].rsplit('@', 1)[1],
+        },
+        'database-health-monitor': {
+            request['backend_config_id'], request['backend_image'].rsplit('@', 1)[1],
+        },
     }
-    for service, config_id in expected.items():
-        if actual.get(service) != config_id:
-            raise DeploymentFailure('config_id_mismatch')
+    for service, identities in expected.items():
+        if actual.get(service) not in identities:
+            raise DeploymentFailure(f"image_identity_mismatch_{service.replace('-', '_')}")
     return True
 
 
@@ -304,6 +308,7 @@ class HostDeployer:
                               timeout=COMMAND_TIMEOUT_SECONDS, reason='image_pull_failed')
                 self._checked(['docker', 'pull', release['frontend_image']], env=docker_env,
                               timeout=COMMAND_TIMEOUT_SECONDS, reason='image_pull_failed')
+                self._verify_pulled_image_identities(release, docker_env)
                 self._compose(['config', '--quiet'], target_env, 'preflight_compose_invalid')
 
                 mutation_started = True
@@ -311,7 +316,7 @@ class HostDeployer:
                               target_env, 'compose_apply_failed', timeout=COMMAND_TIMEOUT_SECONDS)
                 self._wait_for_health(docker_env)
                 actual = self._running_config_ids(docker_env)
-                verify_config_ids(actual, release)
+                verify_image_identities(actual, release)
                 self._require_no_pending_migrations(docker_env, 'postdeploy_migrations_pending')
                 passwords = self._site_access_passwords(docker_env)
                 checks['http'] = verify_http(
@@ -415,6 +420,17 @@ class HostDeployer:
             raise DeploymentFailure('preflight_previous_digest_missing')
         return matches[0]
 
+    def _verify_pulled_image_identities(self, release, env):
+        for name in ('backend', 'frontend'):
+            image = release[f'{name}_image']
+            expected = {release[f'{name}_config_id'], image.rsplit('@', 1)[1]}
+            actual = self._checked(
+                ['docker', 'image', 'inspect', '--format', '{{.Id}}', image],
+                env=env, timeout=20, reason=f'preflight_{name}_image_inspect_failed',
+            ).stdout.strip()
+            if actual not in expected:
+                raise DeploymentFailure(f'pulled_image_identity_mismatch_{name}')
+
     def _require_no_pending_migrations(self, env, reason):
         result = self._checked(
             ['docker', 'exec', CONTAINER_NAMES['backend'],
@@ -505,10 +521,12 @@ class HostDeployer:
                 self._wait_for_health(env)
                 actual = self._running_config_ids(env)
                 previous = {
+                    'backend_image': snapshot['backend_image'],
+                    'frontend_image': snapshot['frontend_image'],
                     'backend_config_id': snapshot['backend_config_id'],
                     'frontend_config_id': snapshot['frontend_config_id'],
                 }
-                verify_config_ids(actual, previous)
+                verify_image_identities(actual, previous)
                 self._require_db_healthy(env)
                 self._require_no_pending_migrations(env, 'rollback_migrations_pending')
                 passwords = self._site_access_passwords(env)

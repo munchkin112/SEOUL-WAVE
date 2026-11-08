@@ -44,10 +44,14 @@ def make_request():
 
 class FakeRunner:
     def __init__(self, *, fail_apply=False, fail_rollback=False,
-                 wrong_backend_config=False, db_healthy=True):
+                 wrong_backend_config=False, wrong_pulled_backend_config=False,
+                 report_manifest_image_ids=False,
+                 db_healthy=True):
         self.fail_apply = fail_apply
         self.fail_rollback = fail_rollback
         self.wrong_backend_config = wrong_backend_config
+        self.wrong_pulled_backend_config = wrong_pulled_backend_config
+        self.report_manifest_image_ids = report_manifest_image_ids
         self.db_healthy = db_healthy
         self.applied = False
         self.up_envs = []
@@ -71,11 +75,19 @@ class FakeRunner:
                 return SimpleNamespace(returncode=0, stdout='running', stderr='')
             if '.Image' in fmt:
                 if container == 'seoul-wave-backend-1':
-                    value = NEW_BACKEND_ID if self.applied and not self.wrong_backend_config else OLD_BACKEND_ID
+                    value = (NEW_BACKEND_IMAGE.rsplit('@', 1)[1]
+                             if self.applied and self.report_manifest_image_ids
+                             and not self.wrong_backend_config else
+                             NEW_BACKEND_ID if self.applied and not self.wrong_backend_config
+                             else OLD_BACKEND_ID)
                 elif container == 'seoul-wave-frontend-1':
-                    value = NEW_FRONTEND_ID if self.applied else OLD_FRONTEND_ID
+                    value = (NEW_FRONTEND_IMAGE.rsplit('@', 1)[1]
+                             if self.applied and self.report_manifest_image_ids else
+                             NEW_FRONTEND_ID if self.applied else OLD_FRONTEND_ID)
                 else:
-                    value = NEW_BACKEND_ID if self.applied else OLD_BACKEND_ID
+                    value = (NEW_BACKEND_IMAGE.rsplit('@', 1)[1]
+                             if self.applied and self.report_manifest_image_ids else
+                             NEW_BACKEND_ID if self.applied else OLD_BACKEND_ID)
                 return SimpleNamespace(returncode=0, stdout=value, stderr='')
             if '.RepoDigests' in fmt:
                 image_id = container
@@ -93,7 +105,19 @@ class FakeRunner:
                     stderr='',
                 )
         if argv[:3] == ['docker', 'image', 'inspect']:
+            fmt = argv[argv.index('--format') + 1] if '--format' in argv else ''
             image_id = argv[-1]
+            if fmt == '{{.Id}}':
+                if image_id == NEW_BACKEND_IMAGE:
+                    value = (OLD_BACKEND_ID if self.wrong_pulled_backend_config else
+                             NEW_BACKEND_IMAGE.rsplit('@', 1)[1]
+                             if self.report_manifest_image_ids else NEW_BACKEND_ID)
+                elif image_id == NEW_FRONTEND_IMAGE:
+                    value = (NEW_FRONTEND_IMAGE.rsplit('@', 1)[1]
+                             if self.report_manifest_image_ids else NEW_FRONTEND_ID)
+                else:
+                    value = 'sha256:' + '0' * 64
+                return SimpleNamespace(returncode=0, stdout=value, stderr='')
             if image_id == OLD_BACKEND_ID:
                 value = [OLD_BACKEND_IMAGE]
             elif image_id == OLD_FRONTEND_ID:
@@ -232,6 +256,24 @@ class HostDeployTests(unittest.TestCase):
         self.assertIn('preflight', result['reason'])
         self.assertFalse(any('up' in call[0] for call in runner.calls))
 
+    def test_pulled_image_identity_mismatch_is_rejected_before_compose_mutation(self):
+        runner = FakeRunner(wrong_pulled_backend_config=True)
+
+        result = self.make_deployer(runner).deploy(make_request())
+
+        self.assertEqual(result['outcome'], 'not_applied')
+        self.assertEqual(result['reason'], 'pulled_image_identity_mismatch_backend')
+        self.assertFalse(any(call[0][:2] == ['docker', 'compose'] and 'up' in call[0]
+                             for call in runner.calls))
+
+    def test_manifest_digest_image_ids_are_accepted_when_pinned_to_the_verified_release(self):
+        runner = FakeRunner(report_manifest_image_ids=True)
+
+        result = self.make_deployer(runner).deploy(make_request())
+
+        self.assertEqual(result['outcome'], 'applied')
+        self.assertEqual(result['reason'], 'verified')
+
     def test_apply_failure_restores_previous_digests_and_reports_rolled_back(self):
         runner = FakeRunner(fail_apply=True)
         result = self.make_deployer(runner).deploy(make_request())
@@ -268,11 +310,11 @@ class HostDeployTests(unittest.TestCase):
         self.assertEqual(result['outcome'], 'rollback_failed')
         self.assertNotIn('sensitive', json.dumps(result))
 
-    def test_running_backend_must_match_exact_config_id(self):
+    def test_running_backend_rejects_an_unrelated_image_identity(self):
         runner = FakeRunner(wrong_backend_config=True)
         result = self.make_deployer(runner).deploy(make_request())
         self.assertEqual(result['outcome'], 'rolled_back')
-        self.assertIn('config', result['reason'])
+        self.assertEqual(result['reason'], 'image_identity_mismatch_backend')
 
     def test_http_verification_checks_proxy_auth_and_timetable_without_leaking_password(self):
         opener = FakeHttpOpener()
@@ -403,7 +445,7 @@ class DeploymentInfrastructureContractTests(unittest.TestCase):
         self.assertEqual(statement['Condition']['StringEquals'], {
             'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
             'token.actions.githubusercontent.com:sub':
-                'repo:munchkin112/SEOUL-WAVE:ref:refs/heads/dev',
+                'repo:munchkin112@287117305/SEOUL-WAVE@1442459999:ref:refs/heads/dev',
         })
 
 
