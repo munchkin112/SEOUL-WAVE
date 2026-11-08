@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import threading
 import unittest
+from types import SimpleNamespace
 from urllib.request import Request, urlopen
 import zipfile
 
@@ -370,6 +371,47 @@ class DeploymentDispatchTests(unittest.TestCase):
             'login': 'passed',
             'timetable': 'passed',
         })
+
+    def test_ssm_poll_names_the_fixed_host_deployment_step(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        calls = []
+
+        def runner(arguments, **_kwargs):
+            calls.append(arguments)
+            return SimpleNamespace(returncode=0, stdout='{"Status":"Failed"}', stderr='')
+
+        response = dispatch.AwsSsmClient(runner=runner).get_command_invocation(
+            '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21', 'i-0bedbcc72c616cdb1',
+        )
+
+        self.assertEqual(response['Status'], 'Failed')
+        self.assertEqual(calls[0][calls[0].index('--plugin-name') + 1], 'runFixedDeployment')
+
+    def test_ssm_poll_surfaces_a_failed_prerequisite_before_host_step_starts(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        calls = []
+
+        def runner(arguments, **_kwargs):
+            step = arguments[arguments.index('--plugin-name') + 1]
+            calls.append(step)
+            if step != 'prepareFixedDirectory':
+                return SimpleNamespace(
+                    returncode=255, stdout='', stderr='InvocationDoesNotExist',
+                )
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({'PluginName': step, 'Status': 'Failed', 'ResponseCode': 1}),
+                stderr='',
+            )
+
+        response = dispatch.AwsSsmClient(runner=runner).get_command_invocation(
+            '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21', 'i-0bedbcc72c616cdb1',
+        )
+
+        self.assertEqual(response['Status'], 'Failed')
+        self.assertEqual(calls, [
+            'runFixedDeployment', 'downloadExactCommitRunner', 'prepareFixedDirectory',
+        ])
 
     def test_polling_waits_for_nonterminal_status_before_success(self):
         self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')

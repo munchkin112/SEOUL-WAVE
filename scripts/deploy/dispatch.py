@@ -206,11 +206,25 @@ class AwsSsmClient:
         ])
 
     def get_command_invocation(self, command_id, instance_id):
+        try:
+            return self._get_command_step(command_id, instance_id, 'runFixedDeployment')
+        except InvocationNotReady:
+            for plugin_name in ('downloadExactCommitRunner', 'prepareFixedDirectory'):
+                try:
+                    invocation = self._get_command_step(command_id, instance_id, plugin_name)
+                except InvocationNotReady:
+                    continue
+                if invocation.get('Status') != 'Success':
+                    return invocation
+            raise InvocationNotReady()
+
+    def _get_command_step(self, command_id, instance_id, plugin_name):
         return self._json([
             'get-command-invocation',
             '--region', AWS_REGION,
             '--command-id', command_id,
             '--instance-id', instance_id,
+            '--plugin-name', plugin_name,
         ], invocation_poll=True)
 
 

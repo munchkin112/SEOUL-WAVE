@@ -8,7 +8,7 @@
 
 - 동시성 그룹은 하나로 고정하고 진행 중인 배포는 취소하지 않는다 (`cancel-in-progress: false`).
 - OIDC 역할은 `arn:aws:iam::909345918351:role/SeoulWave-Deploy`, 리전은 `ap-northeast-2`다. SSM 문서 `SeoulWave-Deploy-v1` 버전 `1`과 인스턴스 `i-0bedbcc72c616cdb1`만 사용한다. 파라미터는 원본 SHA/run ID, 두 digest 이미지, 두 config ID뿐이다. SSH 키, 임의 명령, 다른 문서나 인스턴스는 사용하지 않는다.
-- 디스패처는 SSM 명령이 `Success`가 될 때까지 polling하고, 호스트 결과의 release ID·실제 backend/frontend config ID, `config_ids`, migration dry-run, loopback HTTP 점검(프록시 health, 보호 API, 로그인, 시간표)이 모두 기대값과 일치할 때만 성공으로 본다. `deployment-evidence` Artifact는 원본 run/SHA, release Artifact ID/digest, 배포 대상 이미지 digest, 확인된 config ID와 HTTP 점검, SSM command ID/최종 상태를 보존한다. 원격 stdout/stderr와 비밀값은 증빙이나 Discord 알림에 넣지 않는다.
+- 디스패처는 다단계 SSM 문서의 `runFixedDeployment` step을 지정해 polling한다. 해당 step이 시작되기 전이면 앞선 고정 step의 실패도 확인한다. 성공 결과는 release ID, backend/frontend의 이미지 identity, migration dry-run, loopback HTTP 점검(프록시 health, 보호 API, 로그인, 시간표)이 모두 기대값과 일치해야 한다. Docker image store에 따라 실행 이미지 ID가 config digest 또는 해당 ECR manifest digest로 표시될 수 있으므로, 둘 중 현재 릴리스에서 직접 도출한 값만 허용한다. 두 이미지를 pull한 뒤 Compose 변경 전에 같은 identity를 사전 확인하고, 서비스별 불일치는 안전한 코드로 구분한다. `deployment-evidence` Artifact는 원본 run/SHA, release Artifact ID/digest, 배포 대상 이미지 digest, 확인된 image identity와 HTTP 점검, SSM command ID/최종 상태를 보존한다. 원격 stdout/stderr와 비밀값은 증빙이나 Discord 알림에 넣지 않는다.
 - 기존 `DISCORD_WEBHOOK_URL` convention을 사용해 배포 성공/실패만 알린다. 알림에는 비밀값·원격 stdout/stderr를 넣지 않고 사용자/소유자 mention도 하지 않는다. 15분 무응답 owner escalation은 구현 범위 밖이며 별도 운영 항목으로 남아 있다.
 - 자동 경로는 backend, frontend, itinerary-worker, database-health-monitor 앱 서비스만 다룬다. DB migration, 데이터 적재, PostgreSQL·관리자 서비스 변경, `.env.prod` 변경은 하지 않는다. 새 이미지 검증 실패 시 호스트 runner의 `not_applied`, `rolled_back`, `rollback_failed` 결과를 구분해 확인한다.
 
@@ -61,8 +61,14 @@ dc run --rm --no-deps -v /home/ubuntu/seoul-wave-data:/source:ro backend python 
 
 ## 데이터 보호와 롤백
 
-현재 호스트에는 보존해야 하는 PostgreSQL 및 monitor-state 볼륨이 있다. 자동 배포는 DB schema나 데이터를 변경하지 않으며, 변경 전 앱 이미지/config ID를 기록하고 앱 서비스만 복구한다. DB 백업·복원, migration, 장소 데이터 적재는 별도 승인 절차다. `down -v`, `volume rm`, `system prune`, 테이블 초기화는 사용하지 않는다.
+현재 호스트에는 보존해야 하는 PostgreSQL 및 monitor-state 볼륨이 있다. 자동 배포는 DB schema나 데이터를 변경하지 않으며, 변경 전 앱 이미지 identity를 기록하고 앱 서비스만 복구한다. DB 백업·복원, migration, 장소 데이터 적재는 별도 승인 절차다. `down -v`, `volume rm`, `system prune`, 테이블 초기화는 사용하지 않는다.
 
 ## 검증 증빙
 
-이전 CI 작업에서 기록한 테스트·빌드·HTTP 결과는 그 작업의 증빙이며, Task 3 CD 실행 증빙은 아니다. 자동 배포 구현은 로컬 테스트와 차분 검사까지만 수행한다. GitHub push, SSM command, EC2 변경, 실제 HTTP/브라우저 확인은 별도 승인 전에는 실행하지 않으며, 성공한 실제 배포 전에는 성공 GIF를 만들지 않는다.
+## 2026-11-08 실제 배포 검증 상태
+
+PR #15가 squash merge되어 `dev`의 `2e0fad0931215787a4afd69faeee21c3618d31f2`에 반영되었다. CI run `42430497063`은 테스트·배포 gate·이미지 게시에 성공했고 검증 릴리스 Artifact를 만들었다. 첫 CD 시도는 GitHub OIDC subject 형식 불일치로 AWS 인증에서 멈춰 SSM 명령을 보내지 않았다. CloudTrail에서 확인한 불변 owner/repository ID를 포함한 정확한 `dev` subject로 IAM trust를 수정했다.
+
+재시도 CD run `42430732165`는 OIDC 인증 및 SSM 명령 `37587b0d-4449-4341-b283-4a286ad4d621`까지 성공했지만, 호스트는 `config_id_mismatch`를 감지해 자동 롤백했다. SSM 결과는 `rolled_back`이며 rollback 검증과 proxy health·protected API·login·timetable 검사가 모두 통과했다. 공개 `/` 및 `/api/health`도 롤백 후 각각 HTTP 200이었다. 따라서 이 기록은 성공 배포가 아니다. 같은 릴리스의 ECR manifest config digest와 SSM 파라미터가 검증 산출물과 일치하는 것을 확인했고, Docker image store별 Image ID 표기 차이 및 다단계 SSM의 명시적 step 조회를 보완하는 수정은 후속 PR에 포함할 예정이다.
+
+성공한 실제 배포와 실제 화면 브라우저 검증 전에는 성공 GIF를 만들거나 README에 성공으로 표시하지 않는다.
