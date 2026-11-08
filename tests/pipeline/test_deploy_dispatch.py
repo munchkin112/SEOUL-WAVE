@@ -387,6 +387,171 @@ class DeploymentDispatchTests(unittest.TestCase):
         self.assertEqual(response['Status'], 'Failed')
         self.assertEqual(calls[0][calls[0].index('--plugin-name') + 1], 'runFixedDeployment')
 
+    def test_ssm_poll_retries_when_fixed_plugin_is_not_materialized_yet(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        plugin_calls = []
+        fixed_step_attempts = 0
+        command_id = '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21'
+        applied_invocation = FakeSsm().invocations[0]
+
+        def runner(arguments, **_kwargs):
+            nonlocal fixed_step_attempts
+            if 'send-command' in arguments:
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({'Command': {'CommandId': command_id}}),
+                    stderr='',
+                )
+
+            plugin_name = arguments[arguments.index('--plugin-name') + 1]
+            plugin_calls.append(plugin_name)
+            if plugin_name == 'runFixedDeployment':
+                fixed_step_attempts += 1
+                if fixed_step_attempts == 1:
+                    return SimpleNamespace(
+                        returncode=255,
+                        stdout='',
+                        stderr=('An error occurred (InvalidPluginName) when calling '
+                                'the GetCommandInvocation operation: Plugin '
+                                'runFixedDeployment not found.'),
+                    )
+                return SimpleNamespace(
+                    returncode=0, stdout=json.dumps(applied_invocation), stderr='',
+                )
+
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({'PluginName': plugin_name, 'Status': 'InProgress'}),
+                stderr='',
+            )
+
+        evidence = make_dispatcher(
+            FakeGitHub(), dispatch.AwsSsmClient(runner=runner),
+        ).dispatch({'workflow_run': {'id': int(RUN_ID)}})
+
+        self.assertEqual(evidence['deployment_status'], 'success')
+        self.assertEqual(evidence['remote_outcome'], 'applied')
+        self.assertEqual(plugin_calls, [
+            'runFixedDeployment', 'downloadExactCommitRunner', 'runFixedDeployment',
+        ])
+
+    def test_persistent_missing_ssm_plugin_fails_before_the_general_poll_timeout(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        elapsed = [0.0]
+        command_id = '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21'
+
+        def runner(arguments, **_kwargs):
+            if 'send-command' in arguments:
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({'Command': {'CommandId': command_id}}),
+                    stderr='',
+                )
+            return SimpleNamespace(
+                returncode=255,
+                stdout='',
+                stderr=('An error occurred (InvalidPluginName) when calling '
+                        'the GetCommandInvocation operation: Plugin not found.'),
+            )
+
+        def sleep(seconds):
+            elapsed[0] += seconds
+
+        dispatcher = dispatch.DeploymentDispatcher(
+            github=FakeGitHub(),
+            ssm=dispatch.AwsSsmClient(runner=runner),
+            now=lambda: dispatch.datetime(2026, 11, 7, 9, 0, tzinfo=dispatch.KST),
+            sleep=sleep,
+            monotonic=lambda: elapsed[0],
+            poll_interval_seconds=10,
+            max_poll_seconds=3900,
+        )
+
+        with self.assertRaises(dispatch.DeploymentFailed) as raised:
+            dispatcher.dispatch({'workflow_run': {'id': int(RUN_ID)}})
+
+        self.assertEqual(raised.exception.code, 'ssm_plugin_not_materialized')
+        self.assertEqual(raised.exception.evidence['ssm_status'], 'poll_error')
+        self.assertEqual(elapsed[0], 120)
+
+    def test_all_absent_ssm_steps_fail_before_the_general_poll_timeout(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        elapsed = [0.0]
+        command_id = '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21'
+
+        def runner(arguments, **_kwargs):
+            if 'send-command' in arguments:
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({'Command': {'CommandId': command_id}}),
+                    stderr='',
+                )
+            return SimpleNamespace(
+                returncode=255,
+                stdout='',
+                stderr=('An error occurred (InvocationDoesNotExist) when calling '
+                        'the GetCommandInvocation operation.'),
+            )
+
+        def sleep(seconds):
+            elapsed[0] += seconds
+
+        dispatcher = dispatch.DeploymentDispatcher(
+            github=FakeGitHub(),
+            ssm=dispatch.AwsSsmClient(runner=runner),
+            now=lambda: dispatch.datetime(2026, 11, 7, 9, 0, tzinfo=dispatch.KST),
+            sleep=sleep,
+            monotonic=lambda: elapsed[0],
+            poll_interval_seconds=10,
+            max_poll_seconds=3900,
+        )
+
+        with self.assertRaises(dispatch.DeploymentFailed) as raised:
+            dispatcher.dispatch({'workflow_run': {'id': int(RUN_ID)}})
+
+        self.assertEqual(raised.exception.code, 'ssm_poll_timeout')
+        self.assertEqual(raised.exception.evidence['ssm_status'], 'poll_timeout')
+        self.assertEqual(elapsed[0], 120)
+
+    def test_alternating_ssm_not_ready_errors_share_one_short_timeout(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        elapsed = [0.0]
+
+        class AlternatingNotReadySsm:
+            def __init__(self):
+                self.poll_count = 0
+
+            def send_command(self, **_kwargs):
+                return {'Command': {'CommandId': '9c4f29d0-5cc3-4c75-a880-35c6e4a99a21'}}
+
+            def get_command_invocation(self, _command_id, _instance_id):
+                reason = (
+                    'invocation_missing' if self.poll_count % 2 == 0
+                    else 'plugin_not_materialized'
+                )
+                self.poll_count += 1
+                raise dispatch.InvocationNotReady(reason)
+
+        def sleep(seconds):
+            elapsed[0] += seconds
+
+        dispatcher = dispatch.DeploymentDispatcher(
+            github=FakeGitHub(),
+            ssm=AlternatingNotReadySsm(),
+            now=lambda: dispatch.datetime(2026, 11, 7, 9, 0, tzinfo=dispatch.KST),
+            sleep=sleep,
+            monotonic=lambda: elapsed[0],
+            poll_interval_seconds=10,
+            max_poll_seconds=3900,
+        )
+
+        with self.assertRaises(dispatch.DeploymentFailed) as raised:
+            dispatcher.dispatch({'workflow_run': {'id': int(RUN_ID)}})
+
+        self.assertEqual(raised.exception.code, 'ssm_poll_timeout')
+        self.assertEqual(raised.exception.evidence['ssm_status'], 'poll_timeout')
+        self.assertEqual(elapsed[0], 120)
+
     def test_ssm_poll_surfaces_a_failed_prerequisite_before_host_step_starts(self):
         self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
         calls = []

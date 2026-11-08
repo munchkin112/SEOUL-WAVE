@@ -104,6 +104,28 @@ class DeploymentNotificationTests(unittest.TestCase):
         for secret in ('hunter2', 'private', 'private-token'):
             self.assertNotIn(secret, content)
 
+    def test_plugin_materialization_timeout_code_is_safe_to_notify(self):
+        self.assertIsNotNone(notify, 'scripts/deploy/notify.py has not been implemented')
+        webhook = 'https://discord.com/api/webhooks/123456789012345678/' + 'x' * 32
+        requests = []
+
+        notify.send_notification(
+            webhook,
+            {
+                'deployment_status': 'failure',
+                'source_sha': 'c' * 40,
+                'source_run_id': '126',
+                'ssm_status': 'poll_error',
+                'failure_code': 'ssm_plugin_not_materialized',
+            },
+            job_status='failure',
+            sender=lambda request, timeout: (requests.append(request) or FakeResponse()),
+        )
+
+        content = json.loads(requests[0].data)['content']
+        self.assertIn('ssm_plugin_not_materialized', content)
+        self.assertIn('poll_error', content)
+
     def test_invalid_webhook_destination_is_rejected_before_sending(self):
         self.assertIsNotNone(notify, 'scripts/deploy/notify.py has not been implemented')
         sent = []
