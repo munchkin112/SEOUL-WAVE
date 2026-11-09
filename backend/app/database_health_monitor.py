@@ -209,21 +209,27 @@ def flush_recovered_outages() -> None:
             LOGGER.warning('Recorded a recovered PostgreSQL outage as incident %s.', incident_id)
 
 
+def run_monitor_iteration() -> bool:
+    """Probe PostgreSQL once and keep transient spool failures from killing the monitor."""
+    observed_at = utc_now()
+    is_up = probe_database()
+    record_probe_result(is_up, observed_at)
+    if is_up:
+        try:
+            flush_recovered_outages()
+        except (psycopg.Error, RuntimeError, OSError, sqlite3.Error):
+            LOGGER.warning('Recovered database outage events remain in the local spool.')
+    else:
+        LOGGER.error('PostgreSQL probe failed; outage state is held in the local spool.')
+    return is_up
+
+
 def run_monitor() -> None:
     logging.basicConfig(level=logging.INFO)
     initialize_spool()
     LOGGER.info('PostgreSQL health monitor started; polling every %s seconds.', POLL_INTERVAL_SECONDS)
     while True:
-        observed_at = utc_now()
-        is_up = probe_database()
-        record_probe_result(is_up, observed_at)
-        if is_up:
-            try:
-                flush_recovered_outages()
-            except (psycopg.Error, RuntimeError, OSError):
-                LOGGER.warning('Recovered database outage events remain in the local spool.')
-        else:
-            LOGGER.error('PostgreSQL probe failed; outage state is held in the local spool.')
+        run_monitor_iteration()
         time.sleep(POLL_INTERVAL_SECONDS)
 
 

@@ -1,11 +1,14 @@
+import json
 import os
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 
 from app.agents.demo_models import create_demo_agent_models
-from app.agents.llm_client import LLMConfigurationError, create_openai_agent_models
+from app.agents.itinerary_graph import build_itinerary_graph
+from app.agents.llm_client import AgentModelBundle, LLMConfigurationError, create_openai_agent_models
+from app.agents.schemas import MovementReview
 from app.services import itinerary_agent_service
 from app.services.itinerary_agent_service import (
     ItineraryAgentExecutionError,
@@ -50,6 +53,74 @@ def create_verified_demo_inputs():
         }
     ]
     return trip_context, candidates
+
+
+def test_graph_recovers_from_transient_503_without_database():
+    trip_context, candidates = create_verified_demo_inputs()
+    models = create_demo_agent_models(initial_failures=1, failure_status=503)
+    graph = build_itinerary_graph(models, connection=None)
+
+    result = graph.invoke({
+        'run_id': str(uuid4()),
+        'trip_context': trip_context,
+        'candidates': candidates,
+        'revision_count': 0,
+    })
+
+    assert result['final_result']['result_type'] == 'eligible_candidates'
+    assert models.chat_model.initial_failures_remaining == 0
+
+
+def test_graph_repairs_one_malformed_structured_response_without_database():
+    trip_context, candidates = create_verified_demo_inputs()
+
+    class MalformedOnceModel:
+        def __init__(self):
+            self.delegate = create_demo_agent_models().chat_model
+            self.malformed_response_count = 0
+            self.repair_prompt_count = 0
+
+        def with_structured_output(self, schema):
+            delegate = self.delegate.with_structured_output(schema)
+            model = self
+
+            class StructuredCall:
+                def invoke(self, messages):
+                    if schema is MovementReview and model.malformed_response_count == 0:
+                        model.malformed_response_count += 1
+                        return {
+                            'trip_summary': '',
+                            'candidate_notes': [],
+                            'uncertainties': [],
+                        }
+                    if schema is MovementReview:
+                        payload = json.loads(messages[-1][1])
+                        if 'format_correction' in payload:
+                            model.repair_prompt_count += 1
+                    return delegate.invoke(messages)
+
+            return StructuredCall()
+
+    model = MalformedOnceModel()
+    graph = build_itinerary_graph(
+        AgentModelBundle(
+            chat_model=model,
+            provider='synthetic-test',
+            model_name='synthetic-format-repair',
+        ),
+        connection=None,
+    )
+
+    result = graph.invoke({
+        'run_id': str(uuid4()),
+        'trip_context': trip_context,
+        'candidates': candidates,
+        'revision_count': 0,
+    })
+
+    assert result['final_result']['result_type'] == 'eligible_candidates'
+    assert model.malformed_response_count == 1
+    assert model.repair_prompt_count == 1
 
 
 def test_graph_runs_three_roles_with_one_bounded_critic_revision(operation_connection):
