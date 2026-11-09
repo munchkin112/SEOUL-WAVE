@@ -240,14 +240,17 @@ jobs:
     needs: [backend, frontend, integration, pipeline-gate, publish]
     if: always() && github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Preserve Discord CI result notifications
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_FRONTEND_ID: ${{ vars.DISCORD_FRONTEND_ID }}
-          DISCORD_BACKEND_ID: ${{ vars.DISCORD_BACKEND_ID }}
+          DISCORD_FRONTEND_ID: ${{ secrets.DISCORD_FRONTEND_ID || vars.DISCORD_FRONTEND_ID }}
+          DISCORD_BACKEND_ID: ${{ secrets.DISCORD_BACKEND_ID || vars.DISCORD_BACKEND_ID }}
+          DISCORD_AGENT_ID: ${{ secrets.DISCORD_AGENT_ID || vars.DISCORD_AGENT_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID || secrets.DISCORD_CHANNEL_ID }}
           RESULTS: '{"backend":"${{ needs.backend.result }}","frontend":"${{ needs.frontend.result }}","integration":"${{ needs.integration.result }}","gate":"${{ needs.pipeline-gate.result }}","publish":"${{ needs.publish.result }}"}'
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}

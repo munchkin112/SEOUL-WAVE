@@ -6,8 +6,13 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.discord_ack import notify_failure
 
 
 WEBHOOK_PATH = re.compile(r'/api/(?:v[0-9]+/)?webhooks/[0-9]{17,20}/[A-Za-z0-9._-]+')
@@ -162,12 +167,30 @@ def build_payload(evidence, *, job_status='success'):
 
 
 def send_notification(webhook, evidence, *, job_status='success', sender=urlopen):
+    safe_evidence = normalize_evidence(evidence, job_status=job_status)
+    payload = build_payload(safe_evidence, job_status=job_status)
+    if safe_evidence['deployment_status'] == 'failure':
+        deploy_id = os.getenv('DISCORD_DEPLOY_ID', '').strip()
+        agent_id = os.getenv('DISCORD_AGENT_ID', '').strip()
+        if re.fullmatch(r'[0-9]{17,20}', deploy_id):
+            payload['content'] += f'\n<@{deploy_id}>'
+            payload['allowed_mentions'] = {'parse': [], 'users': [deploy_id]}
+        status, ack_state = notify_failure(
+            webhook, payload,
+            ack_user_ids=[deploy_id] if deploy_id else [],
+            escalation_user_id=agent_id,
+            bot_token=os.getenv('DISCORD_BOT_TOKEN', '').strip(),
+            channel_id=os.getenv('DISCORD_CHANNEL_ID', '').strip(),
+            sender=sender,
+        )
+        print(f'Discord response: {status}; acknowledgement: {ack_state}')
+        return status
+
     url = urlsplit(webhook or '')
     if (url.scheme != 'https' or url.hostname not in {'discord.com', 'discordapp.com'}
             or url.username or url.password or url.query or url.fragment
             or WEBHOOK_PATH.fullmatch(url.path) is None):
         raise ValueError('Invalid Discord webhook configuration.')
-    payload = build_payload(evidence, job_status=job_status)
     request = Request(
         webhook,
         data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),

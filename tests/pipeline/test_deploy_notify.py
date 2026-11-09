@@ -26,6 +26,9 @@ class FakeResponse:
     def __exit__(self, *_args):
         return False
 
+    def read(self):
+        return b''
+
 
 class DeploymentNotificationTests(unittest.TestCase):
     def test_missing_webhook_secret_fails_notification_step(self):

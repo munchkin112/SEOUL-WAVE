@@ -25,7 +25,7 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository &&
       github.event.workflow_run.path == '.github/workflows/pipeline.yml'
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 90
     permissions:
       actions: read
       contents: read
@@ -67,6 +67,10 @@ jobs:
         if: always()
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID || secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_AGENT_ID: ${{ secrets.DISCORD_AGENT_ID || vars.DISCORD_AGENT_ID }}
+          DISCORD_DEPLOY_ID: ${{ secrets.DISCORD_DEPLOY_ID || vars.DISCORD_DEPLOY_ID }}
           JOB_STATUS: ${{ job.status }}
         run: >-
           python scripts/deploy/notify.py
