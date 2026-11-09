@@ -1,10 +1,26 @@
-# 한강버스 AI 나들이 플래너 · SEOUL WAVE
+<div align="center">
 
-한강버스 시간표와 서울시 문화행사 정보를 바탕으로, 하선 후 방문할 만한 장소를 연결해 나들이 코스를 추천하는 웹 서비스입니다.
+<h1>🌊 SEOUL WAVE</h1>
+<h3>한강버스 AI 나들이 플래너</h3>
 
-> **어느 배를 타고 어디에 내려, 그다음 무엇을 할 수 있는지** 한눈에 살펴볼 수 있도록 만들었습니다.
+<p><strong>한강버스 시간표와 서울 문화행사를 잇는 맞춤 나들이 코스</strong></p>
+<p>출발 선착장과 날짜, 동행·활동을 고르면 배편과 주변 행사를 고려해 코스를 추천합니다.</p>
 
-[서비스 바로가기](http://13.125.158.52/) · [GitHub 저장소](https://github.com/munchkin112/SEOUL-WAVE)
+<p>
+  <img src="https://img.shields.io/badge/Frontend-React_19-61DAFB?logo=react&amp;logoColor=black" alt="Frontend: React 19">
+  <img src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&amp;logoColor=white" alt="API: FastAPI">
+  <img src="https://img.shields.io/badge/Workflow-LangGraph-1C3C3C?logo=langchain&amp;logoColor=white" alt="Workflow: LangGraph">
+  <img src="https://img.shields.io/badge/Database-PostgreSQL-4169E1?logo=postgresql&amp;logoColor=white" alt="Database: PostgreSQL">
+  <a href="https://github.com/munchkin112/SEOUL-WAVE/actions/workflows/pipeline.yml?query=branch%3Adev"><img src="https://img.shields.io/github/actions/workflow/status/munchkin112/SEOUL-WAVE/pipeline.yml?branch=dev&amp;label=CI&amp;logo=githubactions" alt="CI pipeline status on dev"></a>
+</p>
+
+<p>
+  <a href="http://13.125.158.52/">🚀 서비스 바로가기</a> ·
+  <a href="docs/itinerary-api-contract.md">📘 API 계약서</a> ·
+  <a href="docs/pipeline-implementation-report.md">🛠 CI/CD 설계</a>
+</p>
+
+</div>
 
 ![SEOUL WAVE 홈 — 한강버스와 함께하는 AI 맞춤 나들이](readme-assets/screens/home.png)
 
