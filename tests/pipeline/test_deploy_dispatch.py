@@ -188,6 +188,40 @@ def make_dispatcher(github, ssm):
 
 
 class DeploymentDispatchTests(unittest.TestCase):
+    def test_valid_release_outside_window_is_skipped_before_aws_or_ssm(self):
+        github = FakeGitHub()
+        add_change_detection_artifact(
+            github, docs_only=False, changed_files=['scripts/deploy/dispatch.py'],
+        )
+        ssm = FakeSsm()
+        dispatcher = make_dispatcher(github, ssm)
+        # The failed production run reached preflight at 20:58 KST.
+        dispatcher.now = lambda: dispatch.datetime(2026, 11, 9, 20, 58, tzinfo=dispatch.KST)
+        decision = dispatcher.preflight({'workflow_run': {'id': int(RUN_ID)}})
+        self.assertEqual(decision['decision'], 'skip')
+        self.assertEqual(decision['reason'], 'outside_deployment_window')
+        self.assertEqual(ssm.send_calls, [])
+        self.assertIn(900, github.download_requests)
+
+    def test_invalid_or_missing_release_outside_window_still_fails(self):
+        cases = [
+            FakeGitHub(artifacts=[]),
+            FakeGitHub(current_head='f' * 40),
+            FakeGitHub(archive=make_archive({**make_manifest(), 'source_sha': 'f' * 40})),
+        ]
+        for github in cases:
+            with self.subTest(github=github):
+                add_change_detection_artifact(
+                    github, docs_only=False, changed_files=['backend/app/main.py'],
+                )
+                ssm = FakeSsm()
+                dispatcher = make_dispatcher(github, ssm)
+                dispatcher.now = lambda: dispatch.datetime(2026, 11, 9, 20, 58, tzinfo=dispatch.KST)
+                with self.assertRaises(dispatch.DeploymentRejected) as rejected:
+                    dispatcher.preflight({'workflow_run': {'id': int(RUN_ID)}})
+                self.assertNotEqual(rejected.exception.code, 'deployment_window_closed')
+                self.assertEqual(ssm.send_calls, [])
+
     def test_window_is_rechecked_after_github_calls_before_ssm_send(self):
         self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
         times = iter((

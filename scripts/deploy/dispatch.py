@@ -25,6 +25,7 @@ for _directory in (str(CI_DIR), str(DEPLOY_DIR)):
 
 from contract import (  # noqa: E402
     AWS_REGION,
+    DeploymentWindowClosed,
     EC2_INSTANCE_ID,
     KST,
     validate_request as validate_deploy_request,
@@ -267,6 +268,8 @@ class DeploymentDispatcher:
             validate_release(manifest, run, run_id)
             current_head = self.github.current_branch_head('dev')
             request = validate_deploy_request(manifest, run, current_head, now)
+        except DeploymentWindowClosed:
+            raise DeploymentRejected('deployment_window_closed') from None
         except (KeyError, TypeError, ValueError):
             raise DeploymentRejected('release_contract_rejected') from None
         return {
@@ -307,7 +310,17 @@ class DeploymentDispatcher:
                 'source_sha': run['head_sha'],
             }
 
-        prepared = self.prepare(event)
+        try:
+            prepared = self.prepare(event)
+        except DeploymentRejected as error:
+            if error.code != 'deployment_window_closed':
+                raise
+            return {
+                'decision': 'skip',
+                'reason': 'outside_deployment_window',
+                'source_run_id': run_id,
+                'source_sha': run['head_sha'],
+            }
         return {'decision': 'deploy', 'prepared': prepared}
 
     def execute(self, prepared):
@@ -328,6 +341,8 @@ class DeploymentDispatcher:
             request = validate_deploy_request(
                 prepared['manifest'], run, current_head, self.now(),
             )
+        except DeploymentWindowClosed:
+            raise DeploymentRejected('deployment_window_closed') from None
         except (KeyError, TypeError, ValueError):
             raise DeploymentRejected('release_contract_rejected') from None
         if request != prepared['request']:
@@ -792,7 +807,13 @@ def main(argv=None):
                     evidence = build_skip_evidence(event, outcome['reason'])
                     _write_json(evidence_path, evidence)
                     _write_github_output('deploy', 'false')
-                    print('Documentation-only pipeline run; EC2 deployment skipped.')
+                    if outcome['reason'] == 'outside_deployment_window':
+                        print('Deployment deferred: allowed hours are 09:00-17:59 KST. '
+                              'No AWS credentials or SSM command were requested. '
+                              'Re-run the deployment workflow during the allowed hours; '
+                              'the release and current dev HEAD will be checked again.')
+                    else:
+                        print('Documentation-only pipeline run; EC2 deployment skipped.')
                     return 0
                 prepared = outcome['prepared']
                 evidence = DeploymentDispatcher._evidence(

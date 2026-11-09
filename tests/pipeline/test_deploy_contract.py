@@ -135,6 +135,18 @@ class DeployRequestContractTests(unittest.TestCase):
                 datetime(2026, 11, 7, 12, 0),
             )
 
+    def test_only_valid_release_is_classified_as_outside_window(self):
+        with self.assertRaises(deployment.DeploymentWindowClosed):
+            deployment.validate_request(
+                make_manifest(), make_run(), 'a' * 40,
+                datetime(2026, 11, 9, 20, 58, tzinfo=KST),
+            )
+        with self.assertRaisesRegex(ValueError, 'current dev HEAD'):
+            deployment.validate_request(
+                make_manifest(), make_run(), 'f' * 40,
+                datetime(2026, 11, 9, 20, 58, tzinfo=KST),
+            )
+
     def test_request_at_sixteen_hundred_is_rejected(self):
         with self.assertRaisesRegex(ValueError, '09:00 through 17:59 KST'):
             deployment.validate_request(
