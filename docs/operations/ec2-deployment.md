@@ -4,7 +4,15 @@
 
 ## 자동 배포 경로
 
-`dev`에 대한 `Verified application pipeline`의 성공한 push 완료만 CD 대상으로 삼는다. CD는 원본 workflow run의 `verified-release` 하나만 조회하고, 만료되지 않은지와 GitHub artifact SHA-256을 검사한 뒤 `release.json`을 기존 `validate_release` 및 배포 계약으로 검증한다. GitHub API bearer token은 첫 API 요청에만 보내며 artifact의 교차 호스트 redirect에는 전달하지 않는다. 해당 커밋이 계속 최신 `dev` HEAD이고 한국 시간 09:00–18:00 접수 구간인지 SSM 호출 직전에도 다시 확인한다.
+`dev`에 대한 `Verified application pipeline`의 성공한 push 완료만 CD 대상으로 삼는다. CD는 같은 run의 `change-detection` Artifact에서 SHA·run ID·digest와 변경 파일 판정을 검증한다. 문서 전용 변경이고 `verified-release`가 없을 때만 문서 사유로 정상 생략한다. 코드 변경에서는 `verified-release`가 정확히 하나 있어야 하며, 만료·GitHub artifact SHA-256·`release.json`을 기존 `validate_release` 및 배포 계약으로 검증한다. GitHub API bearer token은 첫 API 요청에만 보내며 artifact의 교차 호스트 redirect에는 전달하지 않는다. 해당 커밋이 계속 최신 `dev` HEAD이고 한국 시간 09:00 이상 18:00 미만인지 SSM 호출 직전에도 다시 확인한다.
+
+### 배포 시간 밖의 정상 보류
+
+유효한 릴리스가 한국 시간 09:00~17:59 밖에 도착하면 preflight는 성공 종료하고 `deploy=false`를 출력한다. 증빙은 `deployment_status=skipped`, `skip_reason=outside_deployment_window`, `ssm_status=not_sent`로 남으며 OIDC 인증과 SSM job은 실행하지 않는다. 문서 전용 생략은 `skip_reason=documentation_only`로 구분한다.
+
+이는 자동 예약·재시도가 아니다. 허용 시간에 해당 배포 workflow를 다시 실행하면 최신 `dev` HEAD, 출처, 산출물 만료와 digest를 다시 검증한다. 이미 더 최신 커밋이 반영됐으면 오래된 릴리스는 계속 거부한다. 산출물 누락·변조·잘못된 SHA·허용하지 않은 ECR 참조는 시간 밖에도 실패로 처리한다. preflight 통과 후 접수 시간이 닫힌 경우에도 실제 SSM 전송 전 재검증에서 `deployment_window_closed`로 차단한다.
+
+실행 [42613219303](https://github.com/munchkin112/SEOUL-WAVE/actions/runs/42613219303)은 2026-11-09 20:58 KST에 기존 시간 제한에 걸렸으나 일반 `release_contract_rejected`로 기록됐다. 위 처리는 같은 조건을 정상 보류로 구분하며, 과거 실행의 실패 기록을 바꾸지는 않는다.
 
 - 동시성 그룹은 하나로 고정하고 진행 중인 배포는 취소하지 않는다 (`cancel-in-progress: false`).
 - OIDC 역할은 `arn:aws:iam::909345918351:role/SeoulWave-Deploy`, 리전은 `ap-northeast-2`다. SSM 문서 `SeoulWave-Deploy-v1` 버전 `1`과 인스턴스 `i-0bedbcc72c616cdb1`만 사용한다. 파라미터는 원본 SHA/run ID, 두 digest 이미지, 두 config ID뿐이다. SSH 키, 임의 명령, 다른 문서나 인스턴스는 사용하지 않는다.

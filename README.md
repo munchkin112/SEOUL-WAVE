@@ -6,6 +6,8 @@
 
 [서비스 바로가기](http://13.125.158.52/) · [GitHub 저장소](https://github.com/munchkin112/SEOUL-WAVE)
 
+![SEOUL WAVE 홈 — 한강버스와 함께하는 AI 맞춤 나들이](readme-assets/screens/home.png)
+
 ## 기술 구성
 
 | 영역 | 구성 |
@@ -41,18 +43,52 @@
 
 ## 서비스 흐름
 
-1. **요청 접수** · 조건을 검증하고 실행 ID를 발급해 워커에 등록합니다.
-2. **이동 계산** · 시간표에서 출발 편을 찾고 구간 소요시간으로 예상 도착 시각을 계산합니다.
-3. **후보 탐색** · 행사 API를 조회하고, 행사 후보가 없으면 선호 활동에 맞는 장소를 검색합니다.
-4. **에이전트 검토** · 이동 검토 → 추천 설명 → Critic 순으로 처리하며, 수정이 필요하면 한 번 되돌립니다.
-5. **코드 검증·저장** · 승인·후보 ID·근거 ID·추천 수를 확인하고 통과한 코스만 저장합니다.
-6. **재방문** · 쿠키 방문 ID와 DB 기록을 대조해 이전 코스를 표시합니다.
+**선착장 선택 → 날짜·배편·동행·활동 설정 → AI 추천 코스 확인**
+
+<table>
+  <tr>
+    <th width="50%">① 지도에서 출발·도착 선착장 선택</th>
+    <th width="50%">② 나들이 조건과 운항 회차 선택</th>
+  </tr>
+  <tr>
+    <td><a href="readme-assets/screens/planner-route.png"><img src="readme-assets/screens/planner-route.png" alt="한강 지도에서 선착장을 선택하는 화면" width="100%"></a></td>
+    <td><a href="readme-assets/screens/planner-preferences.png"><img src="readme-assets/screens/planner-preferences.png" alt="여행 날짜, 출발 회차, 동행 유형, 선호 활동을 설정하는 화면" width="100%"></a></td>
+  </tr>
+</table>
+
+### ③ 이동 일정과 방문지를 한 코스로 확인
+
+<p align="center">
+  <a href="readme-assets/screens/recommendation.png"><img src="readme-assets/screens/recommendation.png" alt="한강버스 이동 일정, 문화행사 설명, 추천 코스 지도와 공유·인쇄 버튼" width="640"></a>
+</p>
+
+시간표로 예상 도착 시각을 계산하고 행사·장소 후보를 조회한 뒤, 에이전트 검토와 코드 검증을 통과한 코스를 표시합니다. 처음 추천 후 **최대 두 번 다른 코스를 생성**할 수 있고, **여정 조건 링크 공유**와 **PDF 저장·인쇄**를 지원합니다. 공유 링크는 선택 조건을 전달하며 동일한 AI 결과를 보장하지는 않습니다.
 
 적합한 행사와 장소가 모두 없으면 추천을 임의로 생성하지 않고 조건에 맞는 방문지를 찾지 못했다고 안내합니다.
 
+<details>
+<summary><strong>운영 화면 — 서비스 상태와 장애·복구 이력</strong></summary>
+
+<table>
+  <tr>
+    <th width="50%">운영 현황·서비스 상태</th>
+    <th width="50%">오류 원인·복구 시도 추적</th>
+  </tr>
+  <tr>
+    <td><a href="readme-assets/screens/operations-overview.png"><img src="readme-assets/screens/operations-overview.png" alt="AI 실행 추이와 데이터베이스·LangGraph·외부 API 상태를 표시하는 운영 대시보드" width="100%"></a></td>
+    <td><a href="readme-assets/screens/operations-recovery.png"><img src="readme-assets/screens/operations-recovery.png" alt="장애 유형, 발생 위치, 심각도, 해결 상태와 복구 횟수를 조회하는 화면" width="100%"></a></td>
+  </tr>
+</table>
+
+운영 대시보드에서 실행 이력, 외부 API 응답, 장애와 복구 기록을 조회합니다. 화면의 수치에는 시험·모의 실행 기록이 포함되므로 운영 성공률이나 현재 장애 수를 뜻하지 않습니다.
+
+</details>
+
+캡처의 일정·수치는 촬영 시점의 예시입니다. 이미지를 누르면 원본을 볼 수 있습니다. 지도 선은 좌표를 연결한 표시이며 실제 도보·수상 경로와 다를 수 있습니다.
+
 ## 방문자 ID와 기록
 
-개인 계정 로그인을 사용하지 않습니다. 첫 코스를 만들 때 서버가 방문 ID를 발급해 서명된 브라우저 쿠키에 담습니다. 서버는 이후 요청에서 이 ID를 DB의 만료 정보 및 연결된 코스 기록과 대조합니다. 유효한 쿠키가 유지되는 동안 같은 브라우저에서 이전 코스를 이어서 확인할 수 있습니다.
+서비스 접근 인증과 별개로 개인 사용자 계정 대신 방문 ID로 기록을 연결합니다. 첫 코스를 만들 때 서버가 방문 ID를 발급해 서명된 브라우저 쿠키에 담습니다. 서버는 이후 요청에서 이 ID를 DB의 만료 정보 및 연결된 코스 기록과 대조합니다. 유효한 쿠키가 유지되는 동안 같은 브라우저에서 이전 코스를 이어서 확인할 수 있습니다.
 
 세션 전체를 DB에 저장하지는 않지만 방문 ID, 만료 정보, 코스 기록은 저장합니다.
 
@@ -74,7 +110,7 @@ Critic이 수정을 요청하면 추천 설명 노드로 한 차례 돌아갑니
 
 ## 장애 감지와 자동복구
 
-![에이전트 노드, 장애복구 및 CI/CD 파이프라인](readme-assets/recovery-pipeline.svg)
+![네 가지 장애 유형별 감지와 자동복구 방식](readme-assets/recovery-pipeline.svg)
 
 | 장애 | 감지·복구 주체 | 동작·시험 결과 |
 | --- | --- | --- |
@@ -88,17 +124,22 @@ Critic이 수정을 요청하면 추천 설명 노드로 한 차례 돌아갑니
 
 ## CI/CD 파이프라인
 
-테스트한 이미지가 게시·배포되는 이미지와 동일한지 검사하는 이미지 검증 계약을 적용합니다.
+**문서는 가볍게 검증하고, 서비스 변경은 테스트한 이미지 그대로 배포합니다.**
 
-1. Backend 테스트 이미지는 운영 런타임을 상속하며, 테스트 의존성 설치 중에도 런타임 의존성 버전을 constraints로 유지합니다.
-2. 각 테스트 job은 운영 이미지를 생성해 아카이브로 보관합니다.
-3. 통합 job은 새 이미지를 빌드하지 않고 보관된 아카이브를 내려받아 실제 실행합니다.
-4. 이미지 config의 SHA-256 식별 정보를 `tested-images.json`에 기록합니다.
-5. 게시 job은 아카이브, 커밋과 이미지 식별 정보를 확인한 뒤 `docker load`로 이미지를 불러옵니다. 게시 단계에서 이미지를 재빌드하지 않습니다.
-6. ECR manifest의 config 식별 정보를 다시 대조하고, 배포에는 태그 대신 digest로 고정한 참조를 사용합니다.
-7. Backend, Frontend, Integration 중 어느 하나라도 실패하면 gate가 publish와 배포를 차단합니다.
+![문서 전용 변경과 서비스 변경을 구분하는 CI 및 검증 릴리스의 EC2 배포 흐름](readme-assets/cicd-pipeline.svg)
 
-AWS 인증에는 GitHub OIDC를 사용하고 배포 명령은 SSM으로 전달합니다. Discord Webhook은 GitHub Secrets로 전달합니다. 운영 API 키와 DB 비밀번호는 CI에 넣지 않고, CI는 PostgreSQL 18 테스트 DB와 합성 데이터를 사용합니다.
+| 변경·단계 | 수행하는 일 | 차단·생략 기준 |
+| --- | --- | --- |
+| README·일반 문서만 변경 | 변경 파일 판별 + 계약 테스트 + `pipeline-gate` | Docker 빌드·통합 테스트·ECR 게시·EC2 배포 생략 |
+| 앱·Docker·Compose·CI·배포 설정 변경 | Backend·Frontend 검사 → 같은 이미지로 통합 검사 → 필수 gate | 실패·취소·예상 밖 생략·판별 실패 시 게시 차단 |
+| 검증 이미지 게시 | 저장한 아카이브를 재빌드 없이 ECR 게시 → `verified-release` 생성 | 성공한 `dev push`만 허용. PR·main·수동 검사는 게시·배포하지 않음 |
+| EC2 배포 전·후 확인 | run 출처·SHA·Artifact digest 검증 → OIDC → 고정 SSM 문서 → 서비스 검사 | 코드 변경의 산출물 누락·검증 실패는 오류. 적용 후 검사 실패 시 이전 이미지 복구 시도 |
+
+이미지 config의 SHA-256과 ECR manifest를 대조하고 배포 참조를 digest로 고정합니다. CI는 임시 PostgreSQL 18과 합성 데이터·Mock을 사용하며 운영 API 키와 DB 비밀번호를 테스트에 사용하지 않습니다. 결과는 Discord로 통보합니다.
+
+배포 접수 시간은 **한국 시간 09:00~17:59**입니다. 유효한 릴리스가 시간 밖에 도착하면 AWS 인증 전에 배포를 보류하고 사유를 기록합니다. 자동 예약되지는 않으며, 허용 시간에 배포 workflow를 재실행할 때 최신 `dev` HEAD와 산출물을 다시 검증합니다. 문서 전용 실행은 별도의 정상 생략 사유로 구분합니다.
+
+[파이프라인 설계·실행 증빙](docs/pipeline-implementation-report.md) · [배포 운영 절차](docs/operations/ec2-deployment.md)
 
 ## 테스트 결과
 
@@ -108,7 +149,7 @@ AWS 인증에는 GitHub OIDC를 사용하고 배포 명령은 SSM으로 전달�
 | --- | --- | --- |
 | 파이프라인 Backend | 67개 통과, app 실행 줄 커버리지 70.83% | 강제 기준 70% 이상 |
 | 파이프라인 Frontend | 36개 통과, 줄·문장 88.14%, 함수 89.57%, 분기 77.21% | 줄·문장·함수 70%, 분기 60% 이상 |
-| 파이프라인 계약 테스트 | 66개 통과 | SHA·이미지 출처·Artifact·배포 계약 등을 검증 |
+| 파이프라인 계약 테스트 | 97개 통과 | 문서 판별·필수 gate·SHA·이미지·Artifact·배포 시간대·SSM·롤백 검증 |
 | 장애복구 회귀 Backend | 74개 통과, 커버리지 73.25% | 격리 PostgreSQL 18 환경 |
 | 통합 smoke | 통합 job 성공 | Nginx 프록시, 로그인, 선착장·시간표 API 및 Backend DB readiness 경로 검증 |
 

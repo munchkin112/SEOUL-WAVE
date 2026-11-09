@@ -19,14 +19,14 @@ EC2_INSTANCE_ID = 'i-0bedbcc72c616cdb1'
 KST = timezone(timedelta(hours=9), name='KST')
 
 
+class DeploymentWindowClosed(ValueError):
+    """An otherwise valid release is outside the admitted deployment hours."""
+
+
 def validate_request(manifest, run, current_head, now):
     """Return a normalized, immutable deployment request or reject it."""
     if not isinstance(now, datetime) or now.utcoffset() is None:
         raise ValueError('An aware deployment time is required.')
-    local_time = now.astimezone(KST).time().replace(tzinfo=None)
-    if not time(9, 0) <= local_time < time(18, 0):
-        raise ValueError('Deployment requests are accepted only from 09:00 through 17:59 KST.')
-
     run_id = str(run['id'])
     references = validate_release(manifest, run, run_id)
     if current_head != manifest['source_sha']:
@@ -35,6 +35,10 @@ def validate_request(manifest, run, current_head, now):
         prefix = f'{ECR_REGISTRY}/{repository}@sha256:'
         if not references[f'{name.upper()}_IMAGE'].startswith(prefix):
             raise ValueError('Only the configured backend/frontend ECR repositories are accepted.')
+    # A scheduling decision must never hide an invalid or stale release.
+    local_time = now.astimezone(KST).time().replace(tzinfo=None)
+    if not time(9, 0) <= local_time < time(18, 0):
+        raise DeploymentWindowClosed('Deployment requests are accepted only from 09:00 through 17:59 KST.')
     images = manifest['images']
     return {
         'instance_id': EC2_INSTANCE_ID,

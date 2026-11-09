@@ -46,6 +46,7 @@ SAFE_FAILURE_CODES = {
     'release_artifact_id_invalid', 'release_artifact_download_invalid',
     'release_artifact_digest_mismatch', 'release_manifest_missing_or_ambiguous',
     'release_artifact_invalid', 'release_manifest_invalid', 'release_contract_rejected',
+    'deployment_window_closed',
     'source_run_changed', 'release_artifact_changed', 'release_request_changed',
     'prepared_release_invalid', 'ssm_client_unavailable', 'ssm_dispatch_failed',
     'ssm_command_id_missing', 'ssm_poll_failed', 'ssm_poll_timeout',
