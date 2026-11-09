@@ -2,8 +2,13 @@
 import json
 import os
 import re
+import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.discord_ack import notify_failure
 
 
 def main():
@@ -30,6 +35,16 @@ def main():
              f"Commit: {os.environ['COMMIT_SHA']}", os.environ['RUN_URL'],
              *[f'<@{user}>' for user in mentions]]
     payload = {'content': '\n'.join(lines), 'allowed_mentions': {'parse': [], 'users': mentions}}
+    if failed:
+        status, state = notify_failure(
+            webhook, payload,
+            ack_user_ids=mentions,
+            escalation_user_id=os.getenv('DISCORD_AGENT_ID', '').strip(),
+            bot_token=os.getenv('DISCORD_BOT_TOKEN', '').strip(),
+            channel_id=os.getenv('DISCORD_CHANNEL_ID', '').strip(),
+        )
+        print(f'Discord response: {status}; acknowledgement: {state}')
+        return
     with urlopen(Request(webhook, data=json.dumps(payload).encode(), method='POST',
                          headers={'Content-Type': 'application/json', 'User-Agent': 'SEOUL-WAVE-CI/1.0'}),
                  timeout=20) as response:
