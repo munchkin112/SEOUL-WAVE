@@ -62,6 +62,15 @@ def classify_worker_error(error: Exception, stage: str) -> RecoveryDecision:
             recovery_action='none',
         )
 
+    if stage == 'langgraph_execution' and error_code == 'LANGGRAPH_EXECUTION_FAILED':
+        return RecoveryDecision(
+            retryable=True,
+            error_source='LANGGRAPH',
+            error_code='LANGGRAPH_EXECUTION_FAILED',
+            safe_message='The LangGraph runtime failed; a bounded worker retry will be attempted.',
+            recovery_action='retry_langgraph_worker',
+        )
+
     if stage == 'langgraph_execution' and bool(getattr(error, 'retryable', False)):
         return RecoveryDecision(
             retryable=True,

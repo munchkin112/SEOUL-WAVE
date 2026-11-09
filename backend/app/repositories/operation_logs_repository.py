@@ -87,9 +87,12 @@ def update_run_component_log(
                   reason_code = %s,
                   latency_ms = %s,
                   started_at = coalesce(%s, started_at),
-                  checked_at = now()
+                  checked_at = GREATEST(
+                      statement_timestamp(),
+                      coalesce(%s, statement_timestamp())
+                  )
             WHERE run_id = %s AND component_name = %s""",
-        (status, reason_code, latency_ms, started_at, run_id, component_name),
+        (status, reason_code, latency_ms, started_at, started_at, run_id, component_name),
     )
 
 
