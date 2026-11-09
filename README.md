@@ -1,94 +1,134 @@
-# 한강버스 AI 나들이 플래너
+# 한강버스 AI 나들이 플래너 · SEOUL WAVE
 
-한강버스 AI 나들이 플래너의 FastAPI 백엔드와 React 화면입니다. 백엔드는 시간표 조회, 서울시 문화행사 API 조회, PostgreSQL 장소 조회를 제공합니다. 문화행사는 실시간 API에서 받고, 박물관·미술관·공원 등 장소 정보는 PostgreSQL에 저장합니다.
+한강버스 시간표와 서울시 문화행사 정보를 바탕으로, 선착장에서 내린 뒤 방문할 만한 장소를 연결해 나들이 코스를 추천하는 서비스입니다.
 
-## 기준 문서
+"어느 배를 타고 어디에 내려, 그다음 무엇을 할 수 있는지" 한 흐름에서 살펴볼 수 있도록 만들었습니다.
 
-- [PRD v1.0](docs/PRD.md): 제품 범위와 수용 기준
-- [EC2 운영 배포 준비 및 절차](docs/operations/ec2-deployment.md): 개발 Compose와 분리된 ECR·EC2 운영 절차
+- 서비스: [한강버스 AI 나들이 플래너](http://13.125.158.52/)
+- 저장소: [SEOUL-WAVE](https://github.com/encore-ai-campus/aio-02-p3-team1)
 
-## 폴더 구조
+## 개발팀
 
-- `frontend/`: React 화면 (TypeScript, Vite)
-- `backend/`: FastAPI 서버
-- `compose.yaml`: 두 프로그램을 함께 실행하기 위한 설정
-- `backend/data/raw/`: 로컬 원본 시간표와 OCR 중간 파일 (Git에 올리지 않음)
-- `backend/data/processed/`: 검수한 시간표 JSON과 검증 보고서
-- `backend/migrations/002_create_places.sql`: 통합 장소 카탈로그 테이블
-- `backend/scripts/import_place_catalog.py`: 제공된 SQLite 통합 장소 데이터를 PostgreSQL에 적재
+| 이름 | 역할과 담당 산출물 |
+| --- | --- |
+| 김윤한 | 팀장·PM·발표, 기획과 멀티에이전트 아키텍처 공동 설계 |
+| 박서윤 | 기록, 서비스 백엔드 구현, 멀티에이전트 아키텍처 산출물 |
+| 배소정 | 보안·운영, 운영 백엔드와 대시보드, 배포·장애복구 보고서 |
+| 임익현 | 프론트엔드와 개발환경, 파이프라인 구현 결과 보고서 |
 
-## Docker로 실행하기
+## 기술 구성
 
-Git과 Docker Desktop을 설치하고 Docker Desktop을 실행합니다. 저장소를 내려받은 뒤 프로젝트 폴더에서 `.env.example`을 복사해 `.env`를 만들고, `POSTGRES_PASSWORD`와 `SITE_ACCESS_PASSWORDS`를 로컬 개발용 값으로 설정합니다. 문화행사 API를 쓰려면 `SEOUL_CULTURE_API_KEY`도 입력합니다. `.env`는 Git에 올리지 마세요.
+- **Frontend**: 사용자 입력과 추천 결과 화면
+- **Backend**: API, 입력 검증, 시간표·후보 조회와 작업 등록
+- **itinerary-worker**: 추천 작업 실행과 LangGraph 그래프 처리
+- **LangGraph**: 에이전트 노드 순서와 수정 분기 제어
+- **PostgreSQL 18**: 서비스 데이터와 실행·운영 로그 저장
+- **SQLite spool**: DB 장애 중 감지·복구 이력 임시 보존
+- **Docker Compose**: 멀티 컨테이너 운영과 DB 프로세스 재기동
+- **GitHub Actions**: 테스트, 이미지 검증·게시 및 배포 자동화
+- **AWS ECR / OIDC / SSM**: 이미지 저장, CI 인증, 배포 명령 전달
+- **외부 API**: 서울시 문화행사 API, OpenAI API
 
-```bash
-cp .env.example .env
-docker compose up --build
-```
+## 주요 기능
 
-- 화면: http://localhost:5173
-- 서버 상태: http://localhost:8000/health
-- DB 준비 상태: http://localhost:8000/ready
-- 선착장 목록: http://localhost:8000/api/v1/ferry/stops
-- 출발·도착 시간표: `http://localhost:8000/api/v1/ferry/trips?from_stop_id=MAGOK&to_stop_id=MANGWON`
-- 장소 목록: http://localhost:8000/api/v1/places
-- 문화행사 목록: http://localhost:8000/api/v1/events
-- API 문서: http://localhost:8000/docs
+- 출발·도착 선착장, 방문 날짜와 출발 희망 시각을 기준으로 한강버스 시간표 조회
+- 출발 시각과 구간 소요시간을 활용한 예상 도착 시각 계산
+- 방문 날짜와 도착 시각에 맞는 서울시 문화행사 후보 조회
+- 행사 후보가 없을 때 선호 활동에 맞춘 주변 상설 장소 탐색
+- LangGraph 기반 멀티에이전트의 추천 설명과 일정·근거 검토
+- 검증된 추천 코스 저장 및 조회
+- 로그인 없이 방문 ID를 활용한 브라우저별 이용 기록 연결
 
-문화행사 API를 사용하려면 `.env`에 `SEOUL_CULTURE_API_KEY`도 설정해야 합니다. 종료하려면 터미널에서 `Ctrl+C`를 누르고, 실행 환경을 정리하려면 `docker compose down`을 실행하세요. 코드 변경을 반영하려면 명령을 다시 실행하세요.
+## 서비스 이용 흐름
 
-`/health`와 `/ready`는 상태 확인용 공개 API입니다. 선착장·시간표·장소·문화행사 API는 로그인 세션이 필요하며, 프런트엔드 로그인은 `POST /api/auth/login`을 사용합니다. 비밀번호 목록은 `.env`의 `SITE_ACCESS_PASSWORDS`에 쉼표로 구분해 설정합니다.
+1. 방문 날짜, 출발·도착 선착장, 출발 희망 시각, 동행 유형과 선호 활동을 입력합니다.
+2. 백엔드가 실행 ID를 발급하고 추천 작업을 워커에 등록합니다.
+3. 워커가 저장된 시간표에서 출발 편과 예상 도착 시각을 계산합니다.
+4. 서울시 문화행사 API에서 날짜와 장소 조건에 맞는 행사 후보를 찾습니다.
+5. 행사 후보가 없으면 PostgreSQL의 장소 카탈로그에서 선호 활동에 맞는 장소를 찾습니다.
+6. 검증된 후보를 에이전트 그래프에 전달합니다.
+7. Critic 검토와 코드 검증을 통과한 추천을 코스로 저장합니다.
 
-### 운영 로그 저장
+행사와 장소 후보를 찾지 못하면 AI가 임의로 방문 일정을 만들지 않고, 조건에 맞는 방문지를 찾지 못했다고 안내합니다.
 
-사용자 백엔드는 `backend/app/services/operation_logs_service.py`와 `backend/app/repositories/operation_logs_repository.py`를 통해 LangGraph 실행 로그를 공통 PostgreSQL의 기존 운영 로그 테이블에 기록합니다. 운영자 대시보드 조회 API는 별도 프로젝트에서 실행하며 이 FastAPI 서버에는 등록하지 않습니다. 로그에는 원시 예외·요청·프롬프트·비밀값을 기록하지 않습니다.
+## 방문자 식별과 코스 기록
 
-추천 워커는 일시적인 서울시 문화행사 API·DB 오류를 최대 3회 실행 시도 안에서 지수형 대기 후 같은 `run_id`로 재등록합니다. LLM 호출은 노드 안에서 최대 2회 추가 재시도합니다. 워커 프로세스는 Docker 재시작 정책과 90초 작업 임대로 복구하며, 활성 실행 중에는 20초마다 임대를 갱신합니다. PostgreSQL 감시 컨테이너는 10초 간격으로 연결을 확인하고, DB가 복구되면 장애·복구 이력을 기존 `incident_logs`와 `recovery_logs`에 반영합니다. DB가 내려간 동안에는 감시 컨테이너의 별도 영속 볼륨에 전환 이벤트를 보관합니다.
+개인 계정 로그인 대신, 첫 코스를 만들 때 발급한 방문 ID를 서명된 브라우저 쿠키에 담아 이후 요청에 사용합니다. 서버는 쿠키의 방문 ID를 DB의 만료 정보와 대조하고, 해당 방문 ID에 연결된 코스 기록을 조회합니다.
 
-기존 데이터베이스에는 `backend/migrations/008_auto_recovery.sql`을 적용해야 합니다. 이 마이그레이션은 003 운영 로그 마이그레이션을 수정하지 않고 재시도 시각과 인프라 장애용 nullable `run_id`를 추가합니다. 대시보드는 기존 장애·복구 화면에 해당 행을 표시합니다.
+세션 전체를 서버에 저장하지는 않지만 방문 ID와 만료 정보, 코스 기록은 DB에 저장합니다. 유효한 쿠키가 유지되는 동안 같은 브라우저에서 이전 이용 기록을 이어서 볼 수 있습니다.
 
-### LangGraph 흐름 로컬 데모
+## 멀티에이전트 아키텍처
 
-세 역할(이동 근거 검토 → 행사 설명 → 일정 Critic)과 한 번의 수정 요청을 LangGraph로 실행하는 개발 데모가 있습니다. 현재 지원구간과 검수 전시가 준비되지 않아 데모 입력은 합성 데이터이며 실제 추천이 아닙니다. mock 모드는 외부 LLM을 호출하지 않습니다.
+세 개의 도메인 에이전트와 하나의 코드 검증 노드가 같은 워커 안에서 실행됩니다. LangGraph가 실행 순서와 분기를 제어합니다.
 
-```powershell
-docker compose run --rm --no-deps backend python scripts/run_agent_flow_demo.py --mock
-```
+| 노드 | 역할 |
+| --- | --- |
+| `trip_mobility_agent` | 시간표와 예상 도착 정보를 바탕으로 이동 관련 근거와 불확실성을 정리합니다. |
+| `event_explanation_agent` | 입력 후보 중 조건에 맞는 장소를 선택하고 자료에 근거한 추천 설명을 작성합니다. |
+| `schedule_critic_agent` | 날짜, 도착지, 시간표와 추천 근거를 검토하고 `PASS`, `REVISE`, `REJECT`를 판정합니다. |
+| `result_validator` | 코드로 후보 ID, 근거 ID, Critic 승인 여부와 결과 개수를 검증합니다. |
 
-기본 실행은 로그를 PostgreSQL 트랜잭션에서 되돌립니다. 검증 데이터와 사용자 추천 HTTP API/worker가 연결되기 전까지 이 데모는 실제 사용자 추천이 아닙니다. 실제 OpenAI 호출은 팀이 모델을 확정한 뒤 `.env`의 `OPENAI_API_KEY`, `OPENAI_MODEL`을 설정하고 `--live`를 사용해야 합니다.
+Critic이 수정을 요청하면 추천 설명 노드로 한 번 돌아가 다시 검토합니다. 코드 검증까지 통과한 결과만 저장합니다. 사용자가 선택한 선착장과 사전에 검증된 후보는 에이전트가 임의로 바꾸거나 새로 만들 수 없습니다.
 
-## 통합 장소 데이터를 PostgreSQL에 적재하기
+그래프의 타입 지정 공유 상태가 입력과 각 단계 결과를 보존합니다. 단계 간 Handoff와 실행·오류·복구 이력은 동일한 실행 ID를 기준으로 PostgreSQL에 기록합니다.
 
-`C:\study\han_river_pj\database\seoul_places.sqlite3`에는 장소 마스터 3,072건, 출처 레코드 3,397건, 식물원 구역 5건이 들어 있습니다. 원본 SQLite 파일은 저장소에 복사하지 않고 읽기 전용으로 마운트해 사용합니다. 아래 명령은 PowerShell 기준입니다.
+## 장애 감지와 자동 복구
 
-1. DB를 실행합니다.
+장애 유형에 따라 복구 경로를 나눠 운영합니다.
 
-   ```powershell
-   docker compose up -d db
-   ```
+- **LLM 일시 오류**: 동일 Agent 단계에서 제한적으로 재호출합니다. 추가 재시도는 최대 2회이며, 전체 실행시간 90초와 LLM 호출 8회 상한을 둡니다.
+- **LangGraph 실행 오류**: 워커가 같은 실행 ID의 작업을 다시 등록합니다. 최초 시도를 포함해 최대 3회 실행하며 재시도 대기 간격은 2초, 4초, 8초입니다.
+- **PostgreSQL 프로세스 종료**: Docker Compose의 `restart: unless-stopped` 정책으로 DB 컨테이너를 다시 시작합니다.
+- **잘못된 구조화 응답**: 오류를 검증한 뒤 형식 수정 요청을 한 번 보냅니다. 재검증에 실패하면 안전하게 종료합니다.
+- **DB 감시 및 이력 보존**: 감시기가 기본 10초 간격으로 DB 연결을 확인합니다. 연속 실패 정보는 별도 SQLite spool에 보관하고 DB 연결 복구 후 운영 로그로 반영합니다.
 
-2. 장소 테이블을 한 번 생성합니다. 이미 적용한 경우 이 단계는 건너뜁니다.
+### 최신 장애복구 시험 결과
 
-   ```powershell
-   Get-Content -Raw -Encoding UTF8 backend/migrations/002_create_places.sql | docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-   ```
+| 시험 | 장애 유형 | 결과 |
+| --- | --- | --- |
+| FT-01 | LLM 일시 오류 | 재시도 후 추천 성공 |
+| FT-02 | LangGraph 실행 오류 | 같은 실행 ID 재등록 후 추천 성공 및 코스 저장 |
+| FT-03 | PostgreSQL 프로세스 종료 | Docker 자동 재기동 후 추천 성공 및 코스 저장 |
+| FT-04 | 잘못된 구조화 응답 | 형식 수정 요청 후 추천 성공 |
 
-3. 먼저 읽기 전용 검증을 실행합니다.
+최신 시험에서 사람의 재시작 없이 추천 성공까지 복구한 비율은 **4/4, 100%**입니다. FT-03은 장애가 감시기의 연속 실패 임계값에 도달하기 전에 복구되어 incident 기록이 생성되지 않았습니다. 따라서 incident와 recovery 기록까지 확인된 감사 완결률은 **3/4, 75%**입니다. 최신 수치는 유형별 시험 1회 결과입니다.
 
-   ```powershell
-   docker compose run --rm -v "C:/study/han_river_pj/database:/source:ro" backend python scripts/import_place_catalog.py --source /source/seoul_places.sqlite3 --dry-run
-   ```
+## 테스트와 검증 결과
 
-4. 검증 결과를 확인한 뒤 실제로 적재합니다.
+테스트 목적과 실행 환경이 달라 결과를 각각 구분해 기록합니다.
 
-   ```powershell
-   docker compose run --rm -v "C:/study/han_river_pj/database:/source:ro" backend python scripts/import_place_catalog.py --source /source/seoul_places.sqlite3
-   ```
+| 테스트 구분 | 결과 |
+| --- | --- |
+| 파이프라인 Backend 테스트 | 67개 통과, Backend app 실행 줄 커버리지 70.83% |
+| 파이프라인 Frontend 테스트 | 36개 통과, 줄·문장 커버리지 88.14%, 함수 89.57%, 분기 77.21% |
+| 파이프라인 계약 테스트 | 66개 통과 |
+| 장애복구 회귀 테스트 | 격리 PostgreSQL 18에서 Backend 74개 통과, 커버리지 73.25% |
 
-적재는 안정된 텍스트 ID를 보존하며, 장소·출처·구역 행을 upsert합니다. 이 스크립트는 행사 데이터를 가져오거나 기존 행을 삭제하지 않습니다. `CULTURAL_SPACE`는 공연장·도서관·문화원 등으로 구성된 원본 분류라 `EXHIBITION_HALL`과 합치지 않고 별도 분류로 유지합니다.
+자동 파이프라인의 외부 LLM·서울시 API 경계는 Mock 또는 합성 응답으로 테스트합니다. 통합 smoke는 Nginx 프록시, 로그인, 선착장·시간표 API와 Backend DB readiness 경로를 검증하며 실제 LLM 추천 전체 E2E 시험을 뜻하지 않습니다.
 
-2026-11-05 로컬 확인 결과: PostgreSQL 18에 장소 3,072건, 출처 레코드 3,397건, 구역 5건을 적재했습니다. `/ready`에서 DB 연결이 정상이고, 장소 목록·상세 조회가 응답했습니다. API 분류별 건수는 박물관 241건, 미술관 291건, 식물원 3건, 공원 1,884건, 문화공간 653건입니다. 서울시 문화행사 API도 호출되어 전체 19,701건 중 요청한 5건을 반환했습니다. 이는 로컬 개발 환경에서 확인한 결과입니다.
+## CI/CD 파이프라인
 
-## 함께 작업할 때
+파이프라인은 테스트에 사용한 이미지와 게시·배포할 이미지가 동일한지 확인합니다.
 
-각자 브랜치에서 작업하고 Pull Request(변경 사항 합치기 요청)를 통해 공유하세요. 비밀번호, API 키, `.env` 파일, EC2 접속용 `.pem` 파일은 저장소에 올리지 마세요. `compose.yaml`은 로컬 개발용이며, EC2 운영 환경은 [별도 배포 절차](docs/operations/ec2-deployment.md)를 따릅니다.
+1. Backend 테스트 이미지는 운영 런타임을 상속하고, 테스트 의존성 설치 시 런타임 의존성 버전을 constraints로 유지합니다.
+2. 각 job은 운영 이미지를 아카이브로 보관합니다.
+3. 통합 job은 새 이미지를 빌드하지 않고 아카이브를 내려받아 실행합니다.
+4. 테스트한 이미지의 SHA-256 config 식별 정보를 `tested-images.json`에 기록합니다.
+5. 게시 job은 아카이브, 커밋, 이미지 식별 정보를 확인한 뒤 게시합니다. 게시 단계에서 다시 빌드하지 않습니다.
+6. ECR manifest의 config 식별 정보를 대조하고, 배포는 태그 대신 digest로 고정한 참조를 사용합니다.
+7. Backend·Frontend·Integration 중 하나라도 실패하면 gate가 publish와 배포를 차단합니다.
+
+AWS 인증은 GitHub OIDC를 사용하고 배포 명령은 SSM으로 전달합니다. CI는 PostgreSQL 18 테스트 DB와 합성 데이터를 사용하며 운영 DB 비밀번호와 운영 OpenAI 키를 테스트 값으로 사용하지 않습니다.
+
+## 이용 시 참고
+
+- 예상 도착 시각은 출발 시간표와 노선 구간 소요시간으로 계산한 값이며, 공식 도착시각이나 실제 운항을 보장하지 않습니다.
+- 장소 탐색 반경은 선착장 좌표 기준 직선거리입니다. 실제 도보 경로나 이동시간을 뜻하지 않습니다.
+- 행사 정보가 부족한 경우 운영시간·요금·예약 가능 여부 등을 추측해 안내하지 않습니다.
+- 교통약자 이동 경로와 선착장 주변 상권 연계는 향후 보강 방향입니다.
+
+## 프로젝트 문서
+
+- [에이전트 아키텍처 설계서](https://app.notion.com/p/40f2b0d658a68081a681dd70c10dc4b8)
+- [배포·장애복구 보고서](https://app.notion.com/p/4102b0d658a680968a4ee97e8f8d989a)
+- [파이프라인 구현 결과 보고서](https://app.notion.com/p/413d5f9cfda5804e9c01c660f832217d)
