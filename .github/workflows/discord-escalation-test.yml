@@ -25,4 +25,4 @@ jobs:
           DISCORD_BACKEND_ID: ${{ secrets.DISCORD_BACKEND_ID || vars.DISCORD_BACKEND_ID }}
           DISCORD_FRONTEND_ID: ${{ secrets.DISCORD_FRONTEND_ID || vars.DISCORD_FRONTEND_ID }}
           DISCORD_DEPLOY_ID: ${{ secrets.DISCORD_DEPLOY_ID || vars.DISCORD_DEPLOY_ID }}
-        run: python scripts/ci/test_discord_ack.py
+        run: python scripts/ci/discord_ack_manual.py
