@@ -171,6 +171,7 @@ p {
   gap: 12px;
 }
 
+.dashboard-link,
 .share-button,
 .outline-button,
 .logout-button {
@@ -188,6 +189,7 @@ p {
   font-weight: 700;
 }
 
+.dashboard-link:hover,
 .share-button:hover,
 .outline-button:hover {
   background: #f1f1ff;
@@ -200,6 +202,10 @@ p {
   width: 19px;
   height: 19px;
   flex: 0 0 auto;
+}
+
+.dashboard-link {
+  text-decoration: none;
 }
 
 .logout-button {
