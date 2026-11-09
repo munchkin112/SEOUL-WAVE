@@ -580,6 +580,9 @@ export default function App({ onLogout }: { onLogout: () => Promise<void> }) {
           </button>
         </nav>
         <div className="header-actions">
+          <a className="dashboard-link" href="/admin/">
+            운영 대시보드
+          </a>
           <button
             className="logout-button"
             type="button"
