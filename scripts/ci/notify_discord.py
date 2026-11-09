@@ -11,6 +11,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.discord_ack import notify_failure
 
 
+def failed_checks(results):
+    docs_only = results.get('docs_only') == 'true'
+    failed = []
+    if results.get('docs_only') not in {'true', 'false'}:
+        failed.append('docs_only')
+    for name, result in results.items():
+        if name == 'docs_only':
+            continue
+        if docs_only and name in {'backend', 'frontend', 'integration'}:
+            valid = result == 'skipped'
+        elif name == 'publish':
+            valid = result == 'skipped' if docs_only else result in {'success', 'skipped'}
+        else:
+            valid = result == 'success'
+        if not valid:
+            failed.append(name)
+    return failed
+
+
 def main():
     webhook = os.getenv('DISCORD_WEBHOOK_URL', '').strip()
     if not webhook:
@@ -21,9 +40,7 @@ def main():
             or not re.fullmatch(r'/api/(?:v[0-9]+/)?webhooks/[0-9]{17,20}/[A-Za-z0-9._-]+', url.path)):
         raise ValueError('Invalid Discord webhook configuration.')
     results = json.loads(os.environ['RESULTS'])
-    failed = [name for name, result in results.items()
-              if (name != 'publish' and result != 'success')
-              or (name == 'publish' and result not in {'success', 'skipped'})]
+    failed = failed_checks(results)
     mentions = []
     if failed:
         keys = (['DISCORD_FRONTEND_ID'] if failed == ['frontend'] else

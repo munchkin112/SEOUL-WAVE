@@ -44,6 +44,55 @@ class ReleaseContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             contract.require_success({'backend': 'success'})
 
+    def test_pipeline_gate_passes_docs_only_when_contracts_pass_and_app_jobs_skip(self):
+        contract.require_pipeline_gate({
+            'changes': 'success', 'docs_only': 'true', 'contracts': 'success',
+            'backend': 'skipped', 'frontend': 'skipped', 'integration': 'skipped',
+        })
+        with self.assertRaisesRegex(ValueError, 'unexpected application job results'):
+            contract.require_pipeline_gate({
+                'changes': 'success', 'docs_only': 'true', 'contracts': 'success',
+                'backend': 'success', 'frontend': 'skipped', 'integration': 'skipped',
+            })
+
+    def test_pipeline_gate_requires_full_success_for_application_or_mixed_changes(self):
+        contract.require_pipeline_gate({
+            'changes': 'success', 'docs_only': 'false', 'contracts': 'success',
+            'backend': 'success', 'frontend': 'success', 'integration': 'success',
+        })
+        for job, result in (
+            ('backend', 'failure'), ('frontend', 'failure'),
+            ('integration', 'failure'), ('backend', 'skipped'),
+        ):
+            results = {
+                'changes': 'success', 'docs_only': 'false', 'contracts': 'success',
+                'backend': 'success', 'frontend': 'success', 'integration': 'success',
+            }
+            results[job] = result
+            with self.subTest(job=job, result=result), self.assertRaises(ValueError):
+                contract.require_pipeline_gate(results)
+
+    def test_pipeline_gate_failure_blocks_a_release(self):
+        results = {
+            'changes': 'success', 'docs_only': 'false', 'contracts': 'success',
+            'backend': 'success', 'frontend': 'success', 'integration': 'failure',
+        }
+        with self.assertRaises(ValueError):
+            contract.require_pipeline_gate(results)
+        # Publish remains dependent on pipeline-gate, whose failure blocks it.
+        workflow = (Path(__file__).resolve().parents[2]
+                    / '.github/workflows/pipeline.yml').read_text(encoding='utf-8')
+        gate_block = workflow.split('  pipeline-gate:\n', 1)[1].split('  publish:\n', 1)[0]
+        publish_block = workflow.split('  publish:\n', 1)[1].split('  discord_notify:\n', 1)[0]
+        self.assertIn('if: always()', gate_block)
+        self.assertIn('needs: [changes, contracts, backend, frontend, integration]', gate_block)
+        self.assertIn('needs: [changes, pipeline-gate]', publish_block)
+        self.assertIn("needs.changes.outputs.docs_only == 'false'", publish_block)
+        deploy_workflow = (Path(__file__).resolve().parents[2]
+                           / '.github/workflows/deploy.yml').read_text(encoding='utf-8')
+        deploy_preflight = deploy_workflow.split('  preflight:\n', 1)[1].split('  deploy:\n', 1)[0]
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", deploy_preflight)
+
     def test_rebuilt_or_wrong_commit_images_are_rejected(self):
         manifest = {'schema_version': 1, 'source_sha': 'a' * 40, 'images': {
             'backend': {'image_id': 'sha256:' + 'b' * 64},

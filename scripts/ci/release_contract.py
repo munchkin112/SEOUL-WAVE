@@ -31,6 +31,24 @@ def require_success(results: dict[str, str]) -> None:
         raise ValueError(f'Release blocked by required checks: {results}')
 
 
+def require_pipeline_gate(results: dict[str, str]) -> None:
+    """Accept docs-only skips while keeping every application release check fail-closed."""
+    expected = {
+        'changes', 'docs_only', 'contracts', 'backend', 'frontend', 'integration',
+    }
+    if not isinstance(results, dict) or set(results) != expected:
+        raise ValueError(f'Pipeline gate results are incomplete: {results}')
+    if results['changes'] != 'success' or results['contracts'] != 'success':
+        raise ValueError(f'Pipeline gate prerequisites failed: {results}')
+    if results['docs_only'] == 'true':
+        if any(results[name] != 'skipped' for name in ('backend', 'frontend', 'integration')):
+            raise ValueError(f'Document-only run has unexpected application job results: {results}')
+        return
+    if results['docs_only'] != 'false':
+        raise ValueError(f'Pipeline gate has no valid change classification: {results}')
+    require_success({name: results[name] for name in ('backend', 'frontend', 'integration')})
+
+
 def create_manifest(source_sha: str, images: dict[str, str]) -> dict:
     if not re.fullmatch(r'[0-9a-f]{40}', source_sha):
         raise ValueError('An exact source commit SHA is required.')
@@ -78,7 +96,7 @@ def main() -> None:
     verify.add_argument('--archive', required=True, type=Path)
     args = parser.parse_args()
     if args.command == 'gate':
-        require_success(json.loads(args.results))
+        require_pipeline_gate(json.loads(args.results))
     elif args.command == 'create':
         manifest = create_manifest(args.sha, {
             'backend': archive_config_id(args.backend_archive, f'ci-backend:{args.sha}'),
