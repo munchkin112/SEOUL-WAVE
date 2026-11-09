@@ -71,6 +71,21 @@ def make_archive(manifest=None):
     return archive_bytes.getvalue()
 
 
+def make_change_detection_archive(*, docs_only, changed_files):
+    archive_bytes = io.BytesIO()
+    payload = {
+        'schema_version': 1,
+        'source_sha': SOURCE_SHA,
+        'run_id': RUN_ID,
+        'docs_only': docs_only,
+        'reason': 'git_diff',
+        'changed_files': sorted(set(changed_files)),
+    }
+    with zipfile.ZipFile(archive_bytes, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('change-detection.json', json.dumps(payload).encode())
+    return archive_bytes.getvalue()
+
+
 class FakeGitHub:
     def __init__(self, *, run=None, artifacts=None, archive=None, current_head=SOURCE_SHA):
         self.run = run or make_run()
@@ -90,6 +105,7 @@ class FakeGitHub:
         self.artifact_requests = []
         self.download_requests = []
         self.head_requests = []
+        self.archives = {}
 
     def get_workflow_run(self, run_id):
         self.run_requests.append(str(run_id))
@@ -101,11 +117,26 @@ class FakeGitHub:
 
     def download_artifact(self, artifact_id):
         self.download_requests.append(artifact_id)
-        return self.archive
+        return self.archives.get(artifact_id, self.archive)
 
     def current_branch_head(self, branch):
         self.head_requests.append(branch)
         return self.current_head
+
+
+def add_change_detection_artifact(github, *, docs_only, changed_files):
+    archive = make_change_detection_archive(
+        docs_only=docs_only, changed_files=changed_files,
+    )
+    github.artifacts.append({
+        'id': 800,
+        'name': 'change-detection',
+        'expired': False,
+        'expires_at': '2026-12-07T00:00:00Z',
+        'digest': 'sha256:' + hashlib.sha256(archive).hexdigest(),
+        'workflow_run': {'id': int(RUN_ID)},
+    })
+    github.archives[800] = archive
 
 
 class FakeSsm:
@@ -278,6 +309,116 @@ class DeploymentDispatchTests(unittest.TestCase):
 
         self.assertEqual(github.artifact_requests, [RUN_ID])
         self.assertEqual(ssm.send_calls, [])
+
+    def test_docs_only_preflight_skips_when_change_attestation_exists_without_release(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        for changed_files in (['README.md'], ['docs/operations/ec2-deployment.md']):
+            with self.subTest(changed_files=changed_files):
+                github = FakeGitHub(artifacts=[])
+                add_change_detection_artifact(
+                    github, docs_only=True, changed_files=changed_files,
+                )
+                ssm = FakeSsm()
+
+                decision = make_dispatcher(github, ssm).preflight(
+                    {'workflow_run': {'id': int(RUN_ID)}}
+                )
+
+                self.assertEqual(decision, {
+                    'decision': 'skip', 'reason': 'documentation_only',
+                    'source_run_id': RUN_ID, 'source_sha': SOURCE_SHA,
+                })
+                self.assertEqual(github.download_requests, [800])
+                self.assertEqual(github.head_requests, [])
+                self.assertEqual(ssm.send_calls, [])
+
+    def test_docs_only_run_with_an_unexpected_release_artifact_is_an_error(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        github = FakeGitHub()
+        add_change_detection_artifact(
+            github, docs_only=True, changed_files=['README.md'],
+        )
+
+        with self.assertRaisesRegex(
+                dispatch.DeploymentRejected, 'unexpected_release_for_document_only_run'):
+            make_dispatcher(github, FakeSsm()).preflight(
+                {'workflow_run': {'id': int(RUN_ID)}}
+            )
+
+    def test_code_change_with_verified_release_remains_deploy_eligible(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        scenarios = (
+            ['frontend/src/App.tsx'],
+            ['backend/app/main.py'],
+            ['README.md', 'frontend/src/App.tsx'],
+        )
+        for changed_files in scenarios:
+            with self.subTest(changed_files=changed_files):
+                github = FakeGitHub()
+                add_change_detection_artifact(
+                    github, docs_only=False, changed_files=changed_files,
+                )
+
+                decision = make_dispatcher(github, FakeSsm()).preflight(
+                    {'workflow_run': {'id': int(RUN_ID)}}
+                )
+
+                self.assertEqual(decision['decision'], 'deploy')
+                self.assertEqual(decision['prepared']['source_sha'], SOURCE_SHA)
+                self.assertIn(900, github.download_requests)
+                self.assertIn(800, github.download_requests)
+
+    def test_code_change_missing_verified_release_is_a_preflight_failure(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        github = FakeGitHub(artifacts=[])
+        add_change_detection_artifact(
+            github, docs_only=False, changed_files=['backend/app/main.py'],
+        )
+
+        with self.assertRaisesRegex(
+                dispatch.DeploymentRejected, 'release_artifact_not_unique'):
+            make_dispatcher(github, FakeSsm()).preflight(
+                {'workflow_run': {'id': int(RUN_ID)}}
+            )
+        self.assertEqual(github.head_requests, [])
+
+    def test_change_attestation_cannot_mark_a_code_path_as_documentation(self):
+        self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')
+        github = FakeGitHub(artifacts=[])
+        add_change_detection_artifact(
+            github, docs_only=True, changed_files=['backend/app/main.py'],
+        )
+
+        with self.assertRaisesRegex(
+                dispatch.DeploymentRejected, 'change_detection_contract_rejected'):
+            make_dispatcher(github, FakeSsm()).preflight(
+                {'workflow_run': {'id': int(RUN_ID)}}
+            )
+        self.assertEqual(github.head_requests, [])
+
+    def test_preflight_evidence_for_docs_run_never_claims_an_ssm_command(self):
+        evidence = dispatch.build_skip_evidence(
+            {'workflow_run': {'id': int(RUN_ID), 'head_sha': SOURCE_SHA}},
+            'documentation_only',
+        )
+        self.assertEqual(evidence['deployment_status'], 'skipped')
+        self.assertEqual(evidence['ssm_status'], 'not_sent')
+        self.assertIsNone(evidence['ssm_command_id'])
+
+    def test_workflow_preflights_before_oidc_and_requires_explicit_deploy_decision(self):
+        workflow = (REPOSITORY_ROOT / '.github/workflows/deploy.yml').read_text(
+            encoding='utf-8',
+        )
+        preflight_block = workflow.split('  preflight:\n', 1)[1].split('  deploy:\n', 1)[0]
+        deploy_block = workflow.split('  deploy:\n', 1)[1]
+        self.assertIn('actions: read', preflight_block)
+        self.assertIn('contents: read', preflight_block)
+        self.assertNotIn('id-token: write', preflight_block)
+        self.assertIn('dispatch.py preflight', preflight_block)
+        self.assertIn("needs.preflight.outputs.deploy == 'true'", deploy_block)
+        self.assertIn('id-token: write', deploy_block)
+        self.assertIn('dispatch.py prepare', deploy_block)
+        self.assertIn('dispatch.py send', deploy_block)
 
     def test_duplicate_verified_release_is_rejected_even_when_only_one_is_unexpired(self):
         self.assertIsNotNone(dispatch, 'scripts/deploy/dispatch.py has not been implemented')

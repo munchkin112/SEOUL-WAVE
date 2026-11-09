@@ -31,11 +31,14 @@ from contract import (  # noqa: E402
 )
 from prepare_deployment import REPOSITORY, validate_release  # noqa: E402
 from release_contract import verify_run  # noqa: E402
+from change_detection import is_documentation_only  # noqa: E402
 
 
 VERIFIED_WORKFLOW_NAME = 'Verified application pipeline'
 VERIFIED_WORKFLOW_PATH = '.github/workflows/pipeline.yml'
 RELEASE_ARTIFACT_NAME = 'verified-release'
+CHANGE_DETECTION_ARTIFACT_NAME = 'change-detection'
+CHANGE_DETECTION_FILE_NAME = 'change-detection.json'
 SSM_DOCUMENT_NAME = 'SeoulWave-Deploy-v1'
 SSM_DOCUMENT_VERSION = '1'
 SOURCE_REPOSITORY = 'munchkin112/SEOUL-WAVE'
@@ -277,6 +280,36 @@ class DeploymentDispatcher:
             'source_run_url': f'https://github.com/{SOURCE_REPOSITORY}/actions/runs/{run_id}',
         }
 
+    def preflight(self, event):
+        """Skip only attested docs-only runs; require a complete release for every other run."""
+        run_id = self._event_run_id(event)
+        run = self.github.get_workflow_run(run_id)
+        self._require_trusted_run(run, run_id)
+        now = self.now()
+        artifacts = self.github.list_run_artifacts(run_id)
+        change_artifact = self._select_change_detection_artifact(artifacts, run_id, now)
+        change_archive = self.github.download_artifact(change_artifact['id'])
+        changes = self._read_change_detection_artifact(
+            change_archive, change_artifact['digest'], run, run_id,
+        )
+
+        release_artifacts = [
+            item for item in artifacts
+            if isinstance(item, dict) and item.get('name') == RELEASE_ARTIFACT_NAME
+        ]
+        if changes['docs_only']:
+            if release_artifacts:
+                raise DeploymentRejected('unexpected_release_for_document_only_run')
+            return {
+                'decision': 'skip',
+                'reason': 'documentation_only',
+                'source_run_id': run_id,
+                'source_sha': run['head_sha'],
+            }
+
+        prepared = self.prepare(event)
+        return {'decision': 'deploy', 'prepared': prepared}
+
     def execute(self, prepared):
         self._validate_prepared(prepared)
         run_id = prepared['source_run_id']
@@ -396,6 +429,75 @@ class DeploymentDispatcher:
                 or not re.fullmatch(r'[0-9]{1,20}', str(artifact_id))):
             raise DeploymentRejected('release_artifact_id_invalid')
         return artifact
+
+    def _select_change_detection_artifact(self, artifacts, run_id, now):
+        if not isinstance(artifacts, list):
+            raise DeploymentRejected('invalid_change_detection_listing')
+        matches = [item for item in artifacts
+                   if isinstance(item, dict)
+                   and item.get('name') == CHANGE_DETECTION_ARTIFACT_NAME]
+        if len(matches) != 1:
+            raise DeploymentRejected('change_detection_artifact_not_unique')
+        artifact = matches[0]
+        if artifact.get('expired') is not False:
+            raise DeploymentRejected('change_detection_artifact_expired')
+        workflow_run = artifact.get('workflow_run')
+        if not isinstance(workflow_run, dict) or str(workflow_run.get('id')) != run_id:
+            raise DeploymentRejected('change_detection_artifact_wrong_run')
+        try:
+            expires_at = datetime.fromisoformat(
+                artifact['expires_at'].replace('Z', '+00:00')
+            )
+        except (KeyError, TypeError, ValueError):
+            raise DeploymentRejected('change_detection_expiry_invalid') from None
+        if expires_at.utcoffset() is None or expires_at <= now:
+            raise DeploymentRejected('change_detection_artifact_expired')
+        digest = artifact.get('digest')
+        if not isinstance(digest, str) or ARTIFACT_DIGEST_PATTERN.fullmatch(digest) is None:
+            raise DeploymentRejected('change_detection_digest_missing')
+        artifact_id = artifact.get('id')
+        if (isinstance(artifact_id, bool)
+                or not re.fullmatch(r'[0-9]{1,20}', str(artifact_id))):
+            raise DeploymentRejected('change_detection_artifact_id_invalid')
+        return artifact
+
+    @staticmethod
+    def _read_change_detection_artifact(archive_bytes, expected_digest, run, run_id):
+        if not isinstance(archive_bytes, bytes):
+            raise DeploymentRejected('change_detection_download_invalid')
+        actual_digest = 'sha256:' + hashlib.sha256(archive_bytes).hexdigest()
+        if actual_digest != expected_digest:
+            raise DeploymentRejected('change_detection_digest_mismatch')
+        try:
+            with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+                files = [member for member in archive.infolist() if not member.is_dir()]
+                if (len(files) != 1
+                        or files[0].filename != CHANGE_DETECTION_FILE_NAME
+                        or files[0].file_size > MAX_RELEASE_JSON_BYTES):
+                    raise DeploymentRejected('change_detection_manifest_invalid')
+                changes = json.loads(archive.read(files[0]).decode('utf-8'))
+        except DeploymentRejected:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile):
+            raise DeploymentRejected('change_detection_artifact_invalid') from None
+
+        changed_files = changes.get('changed_files') if isinstance(changes, dict) else None
+        docs_only = changes.get('docs_only') if isinstance(changes, dict) else None
+        reason = changes.get('reason') if isinstance(changes, dict) else None
+        if (not isinstance(changes, dict)
+                or changes.get('schema_version') != 1
+                or str(changes.get('run_id')) != run_id
+                or changes.get('source_sha') != run.get('head_sha')
+                or not isinstance(docs_only, bool)
+                or not isinstance(reason, str)
+                or reason not in {'git_diff', 'unknown_base', 'manual_or_other_event'}
+                or not isinstance(changed_files, list)
+                or any(not isinstance(path, str) for path in changed_files)
+                or changed_files != sorted(set(changed_files))
+                or docs_only != (reason == 'git_diff'
+                                 and is_documentation_only(changed_files))):
+            raise DeploymentRejected('change_detection_contract_rejected')
+        return changes
 
     @staticmethod
     def _read_release_manifest(archive_bytes, expected_digest):
@@ -625,9 +727,47 @@ def build_rejection_evidence(event, code, *, prepared=None):
     return evidence
 
 
+def build_skip_evidence(event, reason):
+    workflow_run = event.get('workflow_run') if isinstance(event, dict) else None
+    workflow_run = workflow_run if isinstance(workflow_run, dict) else {}
+    run_id = str(workflow_run.get('id', ''))
+    source_sha = workflow_run.get('head_sha')
+    if not re.fullmatch(r'[0-9]{1,20}', run_id):
+        run_id = None
+    if not isinstance(source_sha, str) or not re.fullmatch(r'[0-9a-f]{40}', source_sha):
+        source_sha = None
+    return {
+        'schema_version': 1,
+        'deployment_status': 'skipped',
+        'source_sha': source_sha,
+        'source_run_id': run_id,
+        'source_run_url': (
+            f'https://github.com/{SOURCE_REPOSITORY}/actions/runs/{run_id}'
+            if run_id else None
+        ),
+        'artifact_id': None,
+        'artifact_digest': None,
+        'ssm_command_id': None,
+        'ssm_status': 'not_sent',
+        'skip_reason': reason,
+    }
+
+
+def _write_github_output(name, value):
+    path = os.environ.get('GITHUB_OUTPUT')
+    if path:
+        with open(path, 'a', encoding='utf-8') as output:
+            output.write(f'{name}={value}\n')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
+    preflight = commands.add_parser(
+        'preflight', help='skip an attested docs-only run or validate its release before AWS auth',
+    )
+    preflight.add_argument('--event', type=Path, default=Path(os.environ.get('GITHUB_EVENT_PATH', 'event.json')))
+    preflight.add_argument('--evidence', type=Path, default=Path('deployment-evidence.json'))
     prepare = commands.add_parser('prepare', help='validate a workflow_run and release artifact')
     prepare.add_argument('--event', type=Path, default=Path(os.environ.get('GITHUB_EVENT_PATH', 'event.json')))
     prepare.add_argument('--request', type=Path, default=Path('deployment-request.json'))
@@ -643,9 +783,25 @@ def main(argv=None):
     try:
         token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
         github = GitHubApiClient(token)
-        if args.command == 'prepare':
+        if args.command in {'preflight', 'prepare'}:
             event = json.loads(args.event.read_text(encoding='utf-8'))
             dispatcher = DeploymentDispatcher(github=github, ssm=None)
+            if args.command == 'preflight':
+                outcome = dispatcher.preflight(event)
+                if outcome['decision'] == 'skip':
+                    evidence = build_skip_evidence(event, outcome['reason'])
+                    _write_json(evidence_path, evidence)
+                    _write_github_output('deploy', 'false')
+                    print('Documentation-only pipeline run; EC2 deployment skipped.')
+                    return 0
+                prepared = outcome['prepared']
+                evidence = DeploymentDispatcher._evidence(
+                    prepared, deployment_status='pending',
+                )
+                _write_json(evidence_path, evidence)
+                _write_github_output('deploy', 'true')
+                print('Verified application release preflight passed; deployment is eligible.')
+                return 0
             prepared = dispatcher.prepare(event)
             _write_json(args.request, prepared)
             evidence = DeploymentDispatcher._evidence(prepared, deployment_status='pending')
