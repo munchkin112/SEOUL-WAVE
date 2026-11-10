@@ -38,12 +38,42 @@
 
 ## 팀과 역할
 
-| 이름 | 역할 | 담당 영역 | GitHub |
-| --- | --- | --- | --- |
-| 김윤한 | 팀장·PM | 기획·발표·멀티에이전트 아키텍처 공동 설계 | [foundation716-bot](https://github.com/foundation716-bot) |
-| 박서윤 | 서비스 백엔드 | 프로젝트 기록·백엔드 개발·멀티에이전트 아키텍처 산출물 | [seoyun-park](https://github.com/seoyun-park) |
-| 배소정 | 운영 백엔드·보안 | 보안·운영·대시보드·배포 및 장애복구 보고서 | [thwjd9393](https://github.com/thwjd9393) |
-| 임익현 | 프론트엔드·DevOps | React·TypeScript 개발, API 연동, AWS 배포·CI/CD, Discord 알림, 테스트·배포 문서 및 시연 | [munchkin112](https://github.com/munchkin112) |
+<table>
+  <thead>
+    <tr>
+      <th width="12%">이름</th>
+      <th width="21%">역할</th>
+      <th width="42%">담당 영역</th>
+      <th width="25%">GitHub</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>김&#8288;윤&#8288;한</td>
+      <td>팀장·PM</td>
+      <td>기획·발표·멀티에이전트 아키텍처 공동 설계</td>
+      <td><a href="https://github.com/foundation716-bot">foundation716-bot</a></td>
+    </tr>
+    <tr>
+      <td>박&#8288;서&#8288;윤</td>
+      <td>서비스 백엔드</td>
+      <td>프로젝트 기록·백엔드 개발·멀티에이전트 아키텍처 산출물</td>
+      <td><a href="https://github.com/seoyun-park">seoyun-park</a></td>
+    </tr>
+    <tr>
+      <td>배&#8288;소&#8288;정</td>
+      <td>운영 백엔드·보안</td>
+      <td>보안·운영·대시보드·배포 및 장애복구 보고서</td>
+      <td><a href="https://github.com/thwjd9393">thwjd9393</a></td>
+    </tr>
+    <tr>
+      <td>임&#8288;익&#8288;현</td>
+      <td>프론트엔드·DevOps</td>
+      <td>React·TypeScript 개발, API 연동, AWS 배포·CI/CD, Discord 알림, 테스트·배포 문서 및 시연</td>
+      <td><a href="https://github.com/munchkin112">munchkin112</a></td>
+    </tr>
+  </tbody>
+</table>
 
 ## 주요 기능
 
