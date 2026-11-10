@@ -69,7 +69,7 @@
     <tr>
       <td>임&#8288;익&#8288;현</td>
       <td>프론트엔드·DevOps</td>
-      <td>React·TypeScript 개발, API 연동, AWS 배포·CI/CD, Discord 알림, 테스트·배포 문서 및 시연</td>
+      <td>React·TypeScript 개발, API 연동, AWS 배포, GitHub Actions 기반 CI/CD 파이프라인 구축·운영, Discord 알림, 테스트·배포 문서 및 시연</td>
       <td><a href="https://github.com/munchkin112">munchkin112</a></td>
     </tr>
   </tbody>
