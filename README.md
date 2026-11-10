@@ -38,12 +38,12 @@
 
 ## 팀과 역할
 
-| 팀원 | 담당 |
-| --- | --- |
-| [김윤한](https://github.com/foundation716-bot) | 팀장·PM·발표, 기획 및 멀티에이전트 아키텍처 공동 설계 |
-| [박서윤](https://github.com/seoyun-park) | 기록, 서비스 백엔드, 멀티에이전트 아키텍처 산출물 |
-| [배소정](https://github.com/thwjd9393) | 보안·운영, 운영 백엔드·대시보드, 배포·장애복구 보고서 |
-| [임익현](https://github.com/munchkin112) | 프론트엔드 개발·백엔드 API 연동, AWS 배포 및 CI/CD 구축<br>Discord 장애 알림, 테스트·배포 문서 작성 및 시연 |
+| 이름 | 역할 | 담당 영역 | GitHub |
+| --- | --- | --- | --- |
+| 김윤한 | 팀장·PM | 기획·발표·멀티에이전트 아키텍처 공동 설계 | [foundation716-bot](https://github.com/foundation716-bot) |
+| 박서윤 | 서비스 백엔드 | 프로젝트 기록·백엔드 개발·멀티에이전트 아키텍처 산출물 | [seoyun-park](https://github.com/seoyun-park) |
+| 배소정 | 운영 백엔드·보안 | 보안·운영·대시보드·배포 및 장애복구 보고서 | [thwjd9393](https://github.com/thwjd9393) |
+| 임익현 | 프론트엔드·DevOps | React·TypeScript 개발, API 연동, AWS 배포·CI/CD, Discord 알림, 테스트·배포 문서 및 시연 | [munchkin112](https://github.com/munchkin112) |
 
 ## 주요 기능
 
